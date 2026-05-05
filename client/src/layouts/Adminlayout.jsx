@@ -5,6 +5,7 @@ import { LayoutDashboard, Users, LogOut, LayoutGrid, ShieldCheck, Store, Package
 import NotificationBell from "../components/NotificationBell";
 import { useAuth } from "../context/auth-context";
 import Avatar from "../components/Avatar";
+import { navigateWithinApp } from "../services/inAppNavigation";
 import { sukiCartLogo, sukiCartLogoHome } from "../utils/logos";
 
 const SIDEBAR_W = 240;
@@ -114,6 +115,11 @@ export default function AdminLayout() {
     const [logoutModalOpen, setLogoutModalOpen] = useState(false);
     const [logoutLoading, setLogoutLoading] = useState(false);
     const [moreOpen, setMoreOpen] = useState(false);
+    const navigateToRoute = React.useCallback((to, options = {}) => {
+        if (!navigateWithinApp(to, options)) {
+            navigate(to, options);
+        }
+    }, [navigate]);
     const isActive = (to) => location.pathname === to || location.pathname.startsWith(`${to}/`);
     const moreActive = MOBILE_SECONDARY_NAV.some((n) => isActive(n.to));
     const getMobileNavClass = (active) =>
@@ -168,7 +174,7 @@ export default function AdminLayout() {
             await logoutUser();
             message.success("Logged out successfully");
             setLogoutModalOpen(false);
-            navigate("/");
+            navigateToRoute("/", { replace: true });
         } catch (error) {
             console.error("Logout failed:", error);
             message.error("Failed to logout");
@@ -189,7 +195,11 @@ export default function AdminLayout() {
             {/* MOBILE: top navbar */}
             {!isDesktop && (
                 <nav className="fixed top-0 left-0 right-0 z-50 h-15.5 bg-white border-b border-gray-100 flex items-center justify-between px-4 shadow-sm">
-                    <Link to="/" className="flex shrink-0 items-center gap-2 no-underline">
+                    <button
+                        type="button"
+                        onClick={() => navigateToRoute("/")}
+                        className="flex shrink-0 items-center gap-2 no-underline border-none bg-transparent p-0 text-left"
+                    >
                         <div className="flex h-10 w-10 items-center justify-center rounded-2xl">
                             <img src={sukiCartLogoHome} alt="SukiCart Logo" className="h-full w-full rounded-xl object-contain" />
                         </div>
@@ -197,16 +207,17 @@ export default function AdminLayout() {
                             <div className="text-base font-bold leading-tight text-green-900">SukiCart</div>
                             <div className="text-xs font-medium text-green-700/75">Admin</div>
                         </div>
-                    </Link>
+                    </button>
                     <div className="flex items-center gap-2.5">
                         <NotificationBell />
-                        <Link
-                            to="/admin/edit-profile"
-                            className="flex h-12 w-12 items-center justify-center rounded-2xl no-underline"
+                        <button
+                            type="button"
+                            onClick={() => navigateToRoute("/admin/edit-profile")}
+                            className="flex h-12 w-12 items-center justify-center rounded-2xl border-none bg-transparent p-0 no-underline"
                             aria-label="Open profile"
                         >
                             <Avatar user={user} />
-                        </Link>
+                        </button>
                     </div>
                 </nav>
             )}
@@ -234,15 +245,16 @@ export default function AdminLayout() {
                         {MOBILE_PRIMARY_NAV.map((n) => {
                             const IconComponent = n.icon;
                             return (
-                                <Link
+                                <button
                                     key={n.to}
-                                    to={n.to}
+                                    type="button"
+                                    onClick={() => navigateToRoute(n.to)}
                                     className={getMobileNavClass(isActive(n.to))}
                                     aria-current={isActive(n.to) ? "page" : undefined}
                                 >
                                     <IconComponent size={18} className="text-inherit" />
                                     <span className="text-[11px] font-semibold whitespace-nowrap">{n.label}</span>
-                                </Link>
+                                </button>
                             );
                         })}
 
@@ -301,10 +313,13 @@ export default function AdminLayout() {
                             const IconComponent = n.icon;
                             const active = isActive(n.to);
                             return (
-                                <Link
+                                <button
                                     key={n.to}
-                                    to={n.to}
-                                    onClick={() => setMoreOpen(false)}
+                                    type="button"
+                                    onClick={() => {
+                                        setMoreOpen(false);
+                                        navigateToRoute(n.to);
+                                    }}
                                     className={`flex items-center gap-3 rounded-xl px-3 py-3 no-underline transition-colors ${active
                                         ? "bg-green-50 text-green-700"
                                         : "text-gray-600 hover:bg-gray-50 hover:text-gray-800"
@@ -312,7 +327,7 @@ export default function AdminLayout() {
                                 >
                                     <IconComponent size={18} className="text-inherit" />
                                     <span className="text-sm font-medium">{n.label}</span>
-                                </Link>
+                                </button>
                             );
                         })}
                     </div>

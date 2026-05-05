@@ -6,6 +6,7 @@ import NotificationBell from "../components/NotificationBell";
 import { useAuth } from "../context/auth-context";
 import Avatar from "../components/Avatar";
 import { getStoreStatus } from "../services/sellerService";
+import { navigateWithinApp } from "../services/inAppNavigation";
 import { sukiCartLogo, sukiCartLogoHome } from "../utils/logos";
 
 const BREAKPOINT = 1024;
@@ -136,6 +137,11 @@ export default function SellerLayout() {
     const [storeVerification, setStoreVerification] = useState(() => readCachedStoreVerification());
     const [storeStatusLoaded, setStoreStatusLoaded] = useState(false);
     const storeVerified = storeVerification?.store_status === "approved";
+    const navigateToRoute = React.useCallback((to, options = {}) => {
+        if (!navigateWithinApp(to, options)) {
+            navigate(to, options);
+        }
+    }, [navigate]);
 
     const updateStoreVerification = (verification) => {
         setStoreVerification(verification);
@@ -159,10 +165,10 @@ export default function SellerLayout() {
         if (!storeVerified) {
             const allowedPaths = ["/seller/dashboard", "/seller/edit-profile", "/seller/notifications"];
             if (!allowedPaths.includes(location.pathname)) {
-                navigate("/seller/dashboard", { replace: true });
+                navigateToRoute("/seller/dashboard", { replace: true });
             }
         }
-    }, [location.pathname, storeStatusLoaded, storeVerified, navigate]);
+    }, [location.pathname, storeStatusLoaded, storeVerified, navigateToRoute]);
 
     const isActive = (to) => location.pathname === to;
     const getMobileNavClass = (active, disabled = false) =>
@@ -179,7 +185,7 @@ export default function SellerLayout() {
             await logoutUser();
             message.success("Logged out successfully");
             setLogoutModalOpen(false);
-            navigate("/");
+            navigateToRoute("/", { replace: true });
         } catch (error) {
             console.error("Logout failed:", error);
             message.error("Failed to logout");
@@ -194,14 +200,15 @@ export default function SellerLayout() {
             style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.5rem)" }}
         >
             <div className="grid grid-cols-4 gap-2 text-green-600">
-                <Link
-                    to="/seller/dashboard"
+                <button
+                    type="button"
+                    onClick={() => navigateToRoute("/seller/dashboard")}
                     className={getMobileNavClass(isActive("/seller/dashboard"))}
                     aria-current={isActive("/seller/dashboard") ? "page" : undefined}
                 >
                     <LayoutDashboard size={18} className="text-inherit" />
                     <span className="text-[11px] font-semibold">Dashboard</span>
-                </Link>
+                </button>
 
                 {!storeVerified ? (
                     <button
@@ -214,14 +221,15 @@ export default function SellerLayout() {
                         <span className="text-[11px] font-semibold">Products</span>
                     </button>
                 ) : (
-                    <Link
-                        to="/seller/products"
+                    <button
+                        type="button"
+                        onClick={() => navigateToRoute("/seller/products")}
                         className={getMobileNavClass(isActive("/seller/products"))}
                         aria-current={isActive("/seller/products") ? "page" : undefined}
                     >
                         <Package size={18} className="text-inherit" />
                         <span className="text-[11px] font-semibold">Products</span>
-                    </Link>
+                    </button>
                 )}
 
                 {!storeVerified ? (
@@ -235,14 +243,15 @@ export default function SellerLayout() {
                         <span className="text-[11px] font-semibold">Orders</span>
                     </button>
                 ) : (
-                    <Link
-                        to="/seller/orders"
+                    <button
+                        type="button"
+                        onClick={() => navigateToRoute("/seller/orders")}
                         className={getMobileNavClass(isActive("/seller/orders"))}
                         aria-current={isActive("/seller/orders") ? "page" : undefined}
                     >
                         <ShoppingBag size={18} className="text-inherit" />
                         <span className="text-[11px] font-semibold">Orders</span>
-                    </Link>
+                    </button>
                 )}
 
                 {/* Logout */}
@@ -273,7 +282,11 @@ export default function SellerLayout() {
             {/* MOBILE: top navbar */}
             {!isDesktop && (
                 <nav className="fixed top-0 left-0 right-0 z-50 h-15.5 bg-white border-b border-gray-100 flex items-center justify-between px-4 shadow-sm">
-                    <Link to="/" className="flex shrink-0 items-center gap-2 no-underline">
+                    <button
+                        type="button"
+                        onClick={() => navigateToRoute("/")}
+                        className="flex shrink-0 items-center gap-2 no-underline border-none bg-transparent p-0 text-left"
+                    >
                         <div className="flex h-10 w-10 items-center justify-center rounded-2xl">
                             <img src={sukiCartLogoHome} alt="SukiCart Logo" className="h-full w-full rounded-xl object-contain" />
                         </div>
@@ -281,16 +294,17 @@ export default function SellerLayout() {
                             <div className="text-base font-bold leading-tight text-green-900">SukiCart</div>
                             <div className="text-xs font-medium text-green-700/75">Seller</div>
                         </div>
-                    </Link>
+                    </button>
                     <div className="flex items-center gap-2.5">
                         <NotificationBell />
-                        <Link
-                            to="/seller/edit-profile"
-                            className="flex h-10 w-10 items-center justify-center rounded-2xl no-underline"
+                        <button
+                            type="button"
+                            onClick={() => navigateToRoute("/seller/edit-profile")}
+                            className="flex h-10 w-10 items-center justify-center rounded-2xl border-none bg-transparent p-0 no-underline"
                             aria-label="Open profile"
                         >
                             <Avatar user={user} />
-                        </Link>
+                        </button>
                     </div>
                 </nav>
             )}

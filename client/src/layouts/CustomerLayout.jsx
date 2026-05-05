@@ -6,6 +6,7 @@ import { useAuth } from "../context/auth-context";
 import { useCart } from "../context/CartContext";
 import Avatar from "../components/Avatar";
 import NotificationBell from "../components/NotificationBell";
+import { navigateWithinApp } from "../services/inAppNavigation";
 import { sukiCartLogoHome } from "../utils/logos";
 
 const NAV = [
@@ -22,6 +23,11 @@ export default function CustomerLayout() {
     const location = useLocation();
     const [logoutModalOpen, setLogoutModalOpen] = React.useState(false);
     const [logoutLoading, setLogoutLoading] = React.useState(false);
+    const navigateToRoute = React.useCallback((to, options = {}) => {
+        if (!navigateWithinApp(to, options)) {
+            navigate(to, options);
+        }
+    }, [navigate]);
 
     const handleLogout = async () => {
         setLogoutLoading(true);
@@ -29,7 +35,7 @@ export default function CustomerLayout() {
             await logoutUser();
             message.success("Logged out successfully");
             setLogoutModalOpen(false);
-            navigate("/");
+            navigateToRoute("/", { replace: true });
         } catch (error) {
             console.error("Logout failed:", error);
             message.error("Failed to logout");
@@ -56,18 +62,20 @@ export default function CustomerLayout() {
                 <div className="grid grid-cols-4 gap-2 text-green-600">
 
                     {/* Dashboard */}
-                    <Link
-                        to="/customer/dashboard"
+                    <button
+                        type="button"
+                        onClick={() => navigateToRoute("/customer/dashboard")}
                         className={getMobileNavClass(isActive("/customer/dashboard"))}
                         aria-current={isActive("/customer/dashboard") ? "page" : undefined}
                     >
                         <LayoutDashboard size={18} className="text-inherit" />
                         <span className="text-[11px] font-semibold">Dashboard</span>
-                    </Link>
+                    </button>
 
                     {/* Cart */}
-                    <Link
-                        to="/customer/cart"
+                    <button
+                        type="button"
+                        onClick={() => navigateToRoute("/customer/cart")}
                         className={getMobileNavClass(isActive("/customer/cart"))}
                         aria-current={isActive("/customer/cart") ? "page" : undefined}
                     >
@@ -76,17 +84,18 @@ export default function CustomerLayout() {
                             <ShoppingCart size={18} className="text-inherit" style={{ color: "#16a34a" }} />
                         </Badge>
                         <span className="text-[11px] font-semibold">Cart</span>
-                    </Link>
+                    </button>
 
                     {/* Order */}
-                    <Link
-                        to="/customer/orders"
+                    <button
+                        type="button"
+                        onClick={() => navigateToRoute("/customer/orders")}
                         className={getMobileNavClass(isActive("/customer/orders"))}
                         aria-current={isActive("/customer/orders") ? "page" : undefined}
                     >
                         <ShoppingBag size={18} className="text-inherit" />
                         <span className="text-[11px] font-semibold">Order</span>
-                    </Link>
+                    </button>
 
                     {/* Logout */}
                     <Button
@@ -164,7 +173,11 @@ export default function CustomerLayout() {
 
                 {/* Mobile Layout (< md): Logo, profile, and notification bell */}
                 <div className="flex items-center justify-between px-4 py-3 md:hidden">
-                    <Link to="/" className="flex shrink-0 items-center gap-2 no-underline">
+                    <button
+                        type="button"
+                        onClick={() => navigateToRoute("/")}
+                        className="flex shrink-0 items-center gap-2 no-underline border-none bg-transparent p-0 text-left"
+                    >
                         <div className="flex h-10 w-10 items-center justify-center rounded-2xl">
                             <img src={sukiCartLogoHome} alt="SukiCart Logo" className="h-full w-full rounded-xl object-contain" />
                         </div>
@@ -172,12 +185,13 @@ export default function CustomerLayout() {
                             <div className="text-base font-bold leading-tight text-green-900">SukiCart</div>
                             <div className="text-xs font-medium text-green-700/75">Customer</div>
                         </div>
-                    </Link>
+                    </button>
                     <div className="flex items-center gap-2">
                         <NotificationBell />
-                        <Link
-                            to="/customer/edit-profile"
-                            className="flex h-12 w-12 items-center justify-center rounded-2xl"
+                        <button
+                            type="button"
+                            onClick={() => navigateToRoute("/customer/edit-profile")}
+                            className="flex h-12 w-12 items-center justify-center rounded-2xl border-none bg-transparent p-0"
                             aria-label="Open profile"
                         >
                             {user ? (
@@ -185,7 +199,7 @@ export default function CustomerLayout() {
                             ) : (
                                 <User size={18} className="text-green-700" />
                             )}
-                        </Link>
+                        </button>
                     </div>
                 </div>
             </nav>
