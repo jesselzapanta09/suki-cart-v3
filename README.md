@@ -22,3 +22,50 @@ platforms/android/app/src/main/java/org/apache/cordova/firebase/FirebasePluginMe
 
 <!-- ADd this  on www.cordova-->
 <script src="cordova.js"></script>
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Suki Cart</title>
+    <script>
+      (function () {
+        var link = document.createElement('link');
+        link.rel = 'icon';
+        link.type = 'image/png';
+        link.href = new URL('/suki-cart-logo.png', window.location.origin).href;
+        document.head.appendChild(link);
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    
+    <script>
+      (function () {
+        var redirect = sessionStorage.getItem('redirect');
+        if (redirect) {
+          sessionStorage.removeItem('redirect');
+          history.replaceState(null, null, redirect);
+        }
+      })();
+    </script>
+
+    <script type="module" crossorigin src="./assets/index-gMPiCoTN.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/index.esm2017-kKfTY8Ns.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-DGE_4VVm.css">
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      if (window.location.protocol === 'file:') {
+        var cordovaScript = document.createElement('script');
+        cordovaScript.src = 'cordova.js';
+        document.body.appendChild(cordovaScript);
+      }
+    </script>
+    <!-- ADd this very important, to know that this is cordova anrdoid. -->
+    <script src="cordova.js"></script>
+  </body>
+</html>
