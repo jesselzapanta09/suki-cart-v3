@@ -118,6 +118,7 @@ class FCMService
         $merged = array_merge($data ?? [], [
             'title' => $title,
             'message' => $message,
+            'notification_foreground' => 'true',
         ]);
 
         return array_map(static fn ($value) => (string) $value, $merged);

@@ -35,16 +35,17 @@ function timeAgo(dateStr) {
 }
 
 function normalizePushNotification(payload) {
-    const data = payload?.data ?? {};
+    const hasNestedData = payload?.data && typeof payload.data === "object" && Object.keys(payload.data).length > 0;
+    const data = hasNestedData ? payload.data : (payload ?? {});
     const notificationId = data.notification_id;
 
     if (!notificationId) return null;
 
     return {
         id: notificationId,
-        type: payload?.type ?? "system",
-        title: payload?.title ?? "Notification",
-        message: payload?.message ?? "",
+        type: payload?.type ?? data.type ?? "system",
+        title: payload?.title ?? data.title ?? "Notification",
+        message: payload?.message ?? data.message ?? data.body ?? "",
         data,
         read_at: null,
         created_at: new Date().toISOString(),

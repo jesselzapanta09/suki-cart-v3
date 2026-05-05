@@ -29,14 +29,24 @@ function getDeviceType() {
     return /iPhone|iPad|iPod/i.test(ua) ? 'ios' : 'android';
 }
 
+function getMobileMessageData(message) {
+    const nestedData = message?.data;
+
+    if (nestedData && typeof nestedData === 'object' && Object.keys(nestedData).length > 0) {
+        return nestedData;
+    }
+
+    return message && typeof message === 'object' ? message : {};
+}
+
 function buildMobileNotification(message) {
-    const data = message?.data ?? {};
+    const data = getMobileMessageData(message);
 
     return {
-        id: data.notification_id || Date.now(),
+        id: data.notification_id || message?.id || Date.now(),
         type: data.type || 'system',
         title: message?.title || data.title || 'Notification',
-        message: message?.body || data.message || '',
+        message: message?.body || data.message || data.body || '',
         data,
         created_at: new Date().toISOString(),
     };
