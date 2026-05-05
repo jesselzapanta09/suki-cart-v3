@@ -5,15 +5,21 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import {
-    getNotifications,
-    markRead,
-    markAllRead,
     deleteNotification,
+    getCurrentWebPushToken,
+    getNotifications,
+    markAllRead,
+    markRead,
     registerPushSubscription,
     unregisterPushSubscription,
 } from "../../services/notificationService";
 import { isCordova } from "../../services/pushHelper";
-import { isMobilePushRuntime, registerPushMobile } from "../../services/pushMobile";
+import {
+    getCurrentMobilePushToken,
+    isMobilePushRuntime,
+    registerPushMobile,
+    unregisterPushMobile,
+} from "../../services/pushMobile";
 
 const TYPE_META = {
     order: { icon: ShoppingBag, bg: "bg-green-100", text: "text-green-600", label: "Order" },
@@ -41,6 +47,7 @@ function timeAgo(dateStr) {
 function NotificationItem({ n, onMarkRead, onDelete, onOpen }) {
     const meta = getTypeMeta(n.type);
     const Icon = meta.icon;
+
     return (
         <div
             onClick={() => onOpen(n)}
@@ -54,8 +61,7 @@ function NotificationItem({ n, onMarkRead, onDelete, onOpen }) {
 
             <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-2">
-                    <span className={`text-sm font-semibold leading-snug
-                        ${!n.read_at ? "text-green-900" : "text-gray-700"}`}>
+                    <span className={`text-sm font-semibold leading-snug ${!n.read_at ? "text-green-900" : "text-gray-700"}`}>
                         {n.title}
                     </span>
                     <span className="text-[10px] text-gray-400 whitespace-nowrap mt-0.5">
@@ -110,10 +116,10 @@ export default function NotificationsPage() {
 
     const unreadCount = notifications.filter(n => !n.read_at).length;
 
-    // ── Fetch notifications ─────────────────────────────────────────────────────
     const fetchPage = useCallback(async (page = 1, replace = true) => {
         if (replace) setLoading(true);
         else setLoadingMore(true);
+
         try {
             const res = await getNotifications(page, 20);
             const items = res.data ?? [];
@@ -127,58 +133,25 @@ export default function NotificationsPage() {
         }
     }, []);
 
-    useEffect(() => { fetchPage(1); }, [fetchPage]);
-
-    // ── Check current push subscription state ───────────────────────────────────
     useEffect(() => {
-        // 📱 CORDOVA FIRST (IMPORTANT)
-        if (isMobilePushRuntime() || isCordova()) {
-            console.log("📱 Mobile runtime detected - skip web Firebase");
-            setPushEnabled(false);
-            return; // 🔥 STOP here
-        }
+        fetchPage(1);
+    }, [fetchPage]);
 
-        // 🌐 WEB ONLY BELOW
-        if (window.location.protocol === 'file:') {
-            setPushEnabled(true);
-            return;
-        }
-
-        if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
-
-        if ("Notification" in window && Notification.permission !== 'granted') {
-            setPushEnabled(false);
-            return;
-        }
-
+    useEffect(() => {
         (async () => {
             try {
-                // Dynamically import Firebase messaging only for web
-                const { getMessaging, getToken, isSupported } = await import('firebase/messaging');
-
-                const supported = await isSupported().catch(() => false);
-                if (!supported) {
-                    setPushEnabled(false);
-                    return;
-                }
-
-                const messaging = getMessaging();
-
-                const registration = await navigator.serviceWorker.ready;
-
-                const token = await getToken(messaging, {
-                    vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
-                    serviceWorkerRegistration: registration,
-                }).catch(() => null);
+                const token = (isMobilePushRuntime() || isCordova())
+                    ? await getCurrentMobilePushToken()
+                    : await getCurrentWebPushToken();
 
                 setPushEnabled(!!token);
             } catch (err) {
-                console.log("Web messaging skipped:", err);
+                console.log("Push status check skipped:", err);
+                setPushEnabled(false);
             }
         })();
     }, []);
 
-    // ── Handlers ────────────────────────────────────────────────────────────────
     const handleMarkRead = async (id) => {
         try {
             await markRead(id);
@@ -225,17 +198,19 @@ export default function NotificationsPage() {
         setPushLoading(true);
 
         try {
-            const cordovaRuntime = isCordova() || window.location.protocol === 'file:' || document.URL.startsWith('file:');
+            const cordovaRuntime = isCordova() || window.location.protocol === "file:" || document.URL.startsWith("file:");
 
-            // 📱 CORDOVA FIRST (CRITICAL)
             if (cordovaRuntime) {
-                console.log("📱 Cordova push flow");
-
                 if (pushEnabled) {
+                    await unregisterPushMobile();
                     setPushEnabled(false);
                     antMessage.success("Push notifications disabled.");
                 } else {
-                    const token = await registerPushMobile();
+                    const token = await registerPushMobile({
+                        requestPermission: true,
+                        saveToBackend: true,
+                    });
+
                     if (token) {
                         setPushEnabled(true);
                         antMessage.success("Push notifications enabled!");
@@ -245,17 +220,15 @@ export default function NotificationsPage() {
                     }
                 }
 
-                return; // 🔥 stop here
+                return;
             }
 
-            // Safety guard: if runtime now looks mobile, do not execute browser flow.
             if (isMobilePushRuntime()) {
                 antMessage.warning("Mobile push plugin is not ready yet. Please reopen the app and try again.");
                 return;
             }
 
-            // 🌐 WEB FLOW
-            if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+            if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
                 antMessage.warning("Push notifications are not supported in this browser.");
                 return;
             }
@@ -265,23 +238,18 @@ export default function NotificationsPage() {
                 setPushEnabled(false);
                 antMessage.success("Push notifications disabled.");
             } else {
-                const perm = await Notification.requestPermission();
+                const token = await registerPushSubscription({
+                    requestPermission: true,
+                    saveToBackend: true,
+                });
 
-                if (perm !== 'granted') {
-                    antMessage.warning("Permission denied.");
-                    return;
-                }
-
-                const sub = await registerPushSubscription();
-
-                if (sub) {
+                if (token) {
                     setPushEnabled(true);
                     antMessage.success("Push notifications enabled!");
                 } else {
                     antMessage.error("Failed to enable push notifications.");
                 }
             }
-
         } catch (err) {
             console.error(err);
             antMessage.error("Something went wrong.");
@@ -290,7 +258,6 @@ export default function NotificationsPage() {
         }
     };
 
-    // ── Filtered list ───────────────────────────────────────────────────────────
     const filtered = tab === "unread"
         ? notifications.filter(n => !n.read_at)
         : notifications;
@@ -300,7 +267,6 @@ export default function NotificationsPage() {
 
     return (
         <div className="p-4 md:p-6 max-w-2xl mx-auto">
-            {/* Header */}
             <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center">
@@ -334,7 +300,6 @@ export default function NotificationsPage() {
                 </div>
             </div>
 
-            {/* Push notification toggle */}
             <div className="flex items-center justify-between bg-white rounded-2xl border border-gray-100 px-4 py-3 mb-4 shadow-sm">
                 <div>
                     <p className="text-sm font-semibold text-gray-800">Push Notifications</p>
@@ -356,16 +321,12 @@ export default function NotificationsPage() {
                 </Button>
             </div>
 
-            {/* Tabs */}
             <Tabs
                 activeKey={tab}
                 onChange={setTab}
                 size="small"
                 items={[
-                    {
-                        key: "all",
-                        label: "All",
-                    },
+                    { key: "all", label: "All" },
                     {
                         key: "unread",
                         label: (
@@ -380,7 +341,6 @@ export default function NotificationsPage() {
                 ]}
             />
 
-            {/* List */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                 {loading ? (
                     <div className="p-4 space-y-3">
@@ -406,7 +366,6 @@ export default function NotificationsPage() {
                     ))
                 )}
 
-                {/* Load more */}
                 {!loading && currentPage < lastPage && (
                     <div className="p-3 text-center border-t border-gray-100">
                         <Button

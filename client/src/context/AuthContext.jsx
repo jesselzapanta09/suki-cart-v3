@@ -10,6 +10,8 @@ import {
     storeAuth,
     storeUser,
 } from "../utils/auth";
+import { unregisterPushSubscription } from "../services/notificationService";
+import { isMobilePushRuntime, unregisterPushMobile } from "../services/pushMobile";
 
 export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
@@ -108,7 +110,17 @@ export const AuthProvider = ({ children }) => {
     };
 
     const logoutUser = async () => {
-        clearAuthState();
+        try {
+            if (isMobilePushRuntime()) {
+                await unregisterPushMobile();
+            } else {
+                await unregisterPushSubscription();
+            }
+        } catch (error) {
+            console.warn("Push unregister failed during logout:", error);
+        } finally {
+            clearAuthState();
+        }
     };
 
     return (

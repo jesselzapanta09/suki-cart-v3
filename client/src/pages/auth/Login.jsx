@@ -5,8 +5,9 @@ import { useAuth } from "../../context/auth-context";
 import { useCart } from "../../context/CartContext";
 import { Loader2, ShoppingBag, Store, Mail, Package, Truck, Tags } from "lucide-react";
 import { login as loginApi, resendVerification } from "../../services/authService";
-import { registerPushSubscription } from "../../services/notificationService";
+import { syncWebPushSubscription } from "../../services/notificationService";
 import { processPendingAddToCart } from "../../services/cartService";
+import { isMobilePushRuntime, syncMobilePushSubscription } from "../../services/pushMobile";
 import { sukiCartLogoHome } from "../../utils/logos";
 
 export default function Login() {
@@ -24,9 +25,13 @@ export default function Login() {
         try {
             const data = await loginApi(values.email, values.password);
             loginUser(data.user, data.token);
-            // Register push subscription after login
+
             try {
-                await registerPushSubscription();
+                if (isMobilePushRuntime()) {
+                    await syncMobilePushSubscription();
+                } else {
+                    await syncWebPushSubscription();
+                }
             } catch (pushErr) {
                 console.warn("Push subscription failed:", pushErr);
             }

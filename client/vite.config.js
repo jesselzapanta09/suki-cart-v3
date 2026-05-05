@@ -26,11 +26,11 @@ export default defineConfig(({ mode }) => {
       proxy: isDev
         ? {
             '/api': {
-              target: 'http://192.168.1.105:8000', // 👈 your Laravel local IP
+              target: 'http://192.168.123.3:8000', // 👈 your Laravel local IP
               changeOrigin: true,
             },
             '/storage': {
-              target: 'http://192.168.1.105:8000',
+              target: 'http://192.168.123.3:8000',
               changeOrigin: true,
             },
           }

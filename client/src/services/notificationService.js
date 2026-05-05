@@ -4,10 +4,6 @@ import { isCordova } from './pushHelper';
 let foregroundMessageListenerReady = false;
 let messagingLib = null;
 
-/**
- * Dynamically load Firebase messaging SDK ONLY if not in Cordova environment
- * This prevents "unsupported-browser" error in Cordova
- */
 async function loadMessaging() {
     if (isCordova()) {
         console.log('[Push] Cordova detected - Firebase Web SDK not loaded');
@@ -51,8 +47,6 @@ async function isMessagingSupportedInThisEnvironment() {
     return lib.isSupported().catch(() => false);
 }
 
-// ── Notifications ──────────────────────────────────────────I────────────────────
-
 export function getNotifications(page = 1, perPage = 20) {
     return api.get('/notifications', { params: { page, per_page: perPage } });
 }
@@ -73,8 +67,6 @@ export function deleteNotification(id) {
     return api.delete(`/notifications/${id}`);
 }
 
-// ── FCM Push Subscription ──────────────────────────────────────────────────────
-
 export function saveFCMToken(deviceToken, deviceType = 'web', deviceName = null) {
     return api.post('/notifications/push-subscription', {
         device_token: deviceToken,
@@ -89,13 +81,44 @@ export function deleteFCMToken(deviceToken) {
     });
 }
 
-// ── Firebase messaging setup ───────────────────────────────────────────────────
+export async function getCurrentWebPushToken() {
+    if (isCordova()) {
+        return null;
+    }
 
-/**
- * Request notification permission and get FCM token
- */
-export async function registerPushSubscription() {
-    // Guard against Cordova/mobile environments where Notification API doesn't exist
+    try {
+        const supported = await isMessagingSupportedInThisEnvironment();
+        if (!supported) {
+            return null;
+        }
+
+        const lib = await loadMessaging();
+        if (!lib) {
+            return null;
+        }
+
+        const { getMessaging, getToken } = lib;
+        const registration = await navigator.serviceWorker.ready.catch(() => null);
+        if (!registration) {
+            return null;
+        }
+
+        return await getToken(getMessaging(), {
+            vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
+            serviceWorkerRegistration: registration,
+        }).catch(() => null);
+    } catch (err) {
+        console.warn('[Push] Failed to read current web token:', err);
+        return null;
+    }
+}
+
+export async function registerPushSubscription(options = {}) {
+    const {
+        requestPermission = true,
+        saveToBackend = true,
+    } = options;
+
     if (isCordova()) {
         console.warn('[Push] Not supported in Cordova environment.');
         return null;
@@ -122,34 +145,32 @@ export async function registerPushSubscription() {
         const { getMessaging, getToken } = lib;
         const messaging = getMessaging();
 
-        // Request notification permission
-        const permission = await Notification.requestPermission();
+        let permission = Notification.permission;
+        if (permission !== 'granted' && requestPermission) {
+            permission = await Notification.requestPermission();
+        }
+
         if (permission !== 'granted') {
             console.warn('[Push] Notification permission denied.');
             return null;
         }
 
-        // Ensure service worker is ready and pass registration to getToken
         const registration = await navigator.serviceWorker.ready;
-        // Get FCM token
-        console.log("🔥 VAPID:", import.meta.env.VITE_FIREBASE_VAPID_KEY);
         const token = await getToken(messaging, {
             vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
             serviceWorkerRegistration: registration,
         });
-
-        console.log("🔥 TOKEN:", token);
 
         if (!token) {
             console.warn('[Push] Failed to get FCM token.');
             return null;
         }
 
-        // Save to backend
-        await saveFCMToken(token, 'web', navigator.userAgent.substring(0, 255));
+        if (saveToBackend) {
+            await saveFCMToken(token, 'web', navigator.userAgent.substring(0, 255));
+        }
 
-        // Set up message listener for foreground notifications
-        setUpMessageListener();
+        await setUpMessageListener();
 
         return token;
     } catch (err) {
@@ -158,11 +179,17 @@ export async function registerPushSubscription() {
     }
 }
 
-/**
- * Unregister and remove FCM token
- */
+export async function syncWebPushSubscription() {
+    return registerPushSubscription({
+        requestPermission: false,
+        saveToBackend: true,
+    });
+}
+
 export async function unregisterPushSubscription() {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        return;
+    }
 
     if (isCordova()) {
         console.warn('[Push] Unregister not supported in Cordova environment.');
@@ -181,33 +208,27 @@ export async function unregisterPushSubscription() {
             return;
         }
 
-        const { getMessaging, getToken, deleteToken } = lib;
+        const { getMessaging, deleteToken } = lib;
         const messaging = getMessaging();
-        const registration = await navigator.serviceWorker.ready.catch(() => null);
-        const token = await getToken(messaging, {
-            vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
-            serviceWorkerRegistration: registration,
-        }).catch(() => null);
+        const token = await getCurrentWebPushToken();
 
         if (token) {
-            await deleteFCMToken(token);
-            await deleteToken(messaging);
+            await deleteFCMToken(token).catch(() => null);
         }
+
+        await deleteToken(messaging).catch(() => null);
     } catch (err) {
         console.error('[Push] Failed to unregister:', err);
     }
 }
 
-/**
- * Set up listener for foreground messages
- */
 export async function setUpMessageListener() {
     if (foregroundMessageListenerReady) {
         return;
     }
 
     if (isCordova()) {
-        console.log("📱 Skip web listener (Cordova)");
+        console.log('[Push] Skip web listener (Cordova)');
         return;
     }
 
@@ -230,36 +251,31 @@ export async function setUpMessageListener() {
         onMessage(messaging, (payload) => {
             console.log('[Push] Foreground message:', payload);
 
-            const title = payload.notification?.title || 'Notification';
-            const body = payload.notification?.body || '';
+            const title = payload.notification?.title || payload.data?.title || 'Notification';
+            const body = payload.notification?.body || payload.data?.message || '';
 
-            // 🔔 SHOW NOTIFICATION
-            if (!isCordova() && "Notification" in window) {
-                if (Notification.permission === 'granted') {
-                    new Notification(title, {
-                        body: body,
-                        icon: '/suki-cart-logo.png',
-                    });
-                }
+            if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification(title, {
+                    body,
+                    icon: '/suki-cart-logo.png',
+                });
             }
 
-            // OPTIONAL: still dispatch event to your app
-            const notification = {
-                id: payload.data?.notification_id || Date.now(),
-                type: payload.data?.type || 'system',
-                title,
-                message: body,
-                data: payload.data || {},
-                created_at: new Date().toISOString(),
-            };
-
             window.dispatchEvent(
-                new CustomEvent('pushNotification', { detail: notification })
+                new CustomEvent('pushNotification', {
+                    detail: {
+                        id: payload.data?.notification_id || Date.now(),
+                        type: payload.data?.type || 'system',
+                        title,
+                        message: body,
+                        data: payload.data || {},
+                        created_at: new Date().toISOString(),
+                    },
+                })
             );
         });
 
         foregroundMessageListenerReady = true;
-
     } catch (err) {
         console.warn('[Push] Failed to set up message listener:', err);
     }

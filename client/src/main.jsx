@@ -1,19 +1,22 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { getApps, initializeApp } from "firebase/app";
 import App from "./App.jsx";
 import "./index.css";
 
 import {
     setUpMessageListener,
-    registerPushSubscription,
+    syncWebPushSubscription,
 } from "./services/notificationService";
 
 import {
-    registerPushMobile,
     listenPushMobile,
+    setUpMobileTokenRefreshListener,
+    syncMobilePushSubscription,
 } from "./services/pushMobile";
 
-// 🔥 Firebase config
+import { getStoredToken } from "./utils/auth";
+
 const firebaseConfig = {
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
     authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -23,74 +26,71 @@ const firebaseConfig = {
     appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-// ─────────────────────────
-// 🌐 WEB PUSH
-// ─────────────────────────
 async function initializeWebPush() {
     try {
-        const { initializeApp } = await import("firebase/app");
-        initializeApp(firebaseConfig);
+        if (!getApps().length) {
+            initializeApp(firebaseConfig);
+        }
 
         console.log("[Firebase] Initialized (Web)");
 
         if ("serviceWorker" in navigator && "Notification" in window) {
-            navigator.serviceWorker
+            await navigator.serviceWorker
                 .register("/firebase-messaging-sw.js")
                 .then((reg) => console.log("[SW] Firebase SW registered:", reg))
                 .catch((err) => console.error("[SW] Registration failed:", err));
 
-            setUpMessageListener();
-            registerPushSubscription();
+            await setUpMessageListener();
+
+            if (getStoredToken() && Notification.permission === "granted") {
+                await syncWebPushSubscription();
+            }
         }
     } catch (err) {
         console.error("[Firebase] Init failed:", err);
     }
 }
 
-// ─────────────────────────
-// 🧠 WAIT FOR CORDOVA OR FALLBACK
-// ─────────────────────────
 function waitForCordovaOrTimeout(timeout = 3000) {
     return new Promise((resolve) => {
         let resolved = false;
 
-        // 📱 Cordova detected
-        document.addEventListener("deviceready", () => {
+        const finish = (mode) => {
             if (!resolved) {
                 resolved = true;
-                resolve("cordova");
+                resolve(mode);
             }
-        });
+        };
 
-        // 🌐 Fallback to web
-        setTimeout(() => {
-            if (!resolved) {
-                resolved = true;
-                resolve("web");
-            }
-        }, timeout);
+        document.addEventListener("deviceready", () => finish("cordova"), { once: true });
+
+        if (window.location.protocol === "file:") {
+            setTimeout(() => finish("cordova"), timeout);
+            return;
+        }
+
+        setTimeout(() => finish("web"), timeout);
     });
 }
 
-// ─────────────────────────
-// 🚀 INIT APP
-// ─────────────────────────
-waitForCordovaOrTimeout().then((mode) => {
+waitForCordovaOrTimeout().then(async (mode) => {
     if (mode === "cordova") {
-        console.log("📱 Cordova ready → MOBILE MODE");
+        console.log("[Push] Cordova ready -> mobile runtime");
 
-        registerPushMobile();
         listenPushMobile();
-    } else {
-        console.log("🌐 Web detected → init push");
+        setUpMobileTokenRefreshListener();
 
-        initializeWebPush();
+        if (getStoredToken()) {
+            await syncMobilePushSubscription();
+        }
+
+        return;
     }
+
+    console.log("[Push] Web runtime detected");
+    await initializeWebPush();
 });
 
-// ─────────────────────────
-// ⚛️ REACT APP
-// ─────────────────────────
 ReactDOM.createRoot(document.getElementById("root")).render(
     <React.StrictMode>
         <App />

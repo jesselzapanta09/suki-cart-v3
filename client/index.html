@@ -22,6 +22,13 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      if (window.location.protocol === 'file:') {
+        var cordovaScript = document.createElement('script');
+        cordovaScript.src = 'cordova.js';
+        document.body.appendChild(cordovaScript);
+      }
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

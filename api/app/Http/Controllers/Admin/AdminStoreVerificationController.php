@@ -104,19 +104,17 @@ class AdminStoreVerificationController extends Controller
         $store->update(['verified_at' => now()]);
         $this->logAction($store->id, 'approve', $previousStatus, 'approved');
 
-        SendNotificationJob::dispatch(function () use ($store) {
-            NotificationHelper::send(
-                userId: $store->user_id,
-                type: 'store',
-                title: 'Store Approved',
-                message: "Congratulations! Your store '{$store->store_name}' has been approved. You can now start selling.",
-                data: [
-                    'store_uuid' => $store->uuid,
-                    'status' => 'approved',
-                    'url' => "/seller/dashboard"
-                ],
-            );
-        });
+        SendNotificationJob::dispatch(
+            (int) $store->user_id,
+            'store',
+            'Store Approved',
+            "Congratulations! Your store '{$store->store_name}' has been approved. You can now start selling.",
+            [
+                'store_uuid' => (string) $store->uuid,
+                'status' => 'approved',
+                'url' => '/seller/dashboard',
+            ]
+        );
 
         
 
@@ -202,19 +200,17 @@ class AdminStoreVerificationController extends Controller
         $this->logAction($store->id, 'pending', $previousStatus, 'pending');
 
 
-        SendNotificationJob::dispatch(function () use ($store) {
-                NotificationHelper::send(
-                userId: $store->user_id,
-                type: 'store',
-                title: 'Store Under Re-review',
-                message: "Your store '{$store->store_name}' has been placed back under review by an admin.",
-                data: [
-                    'store_uuid' => $store->uuid,
-                    'status' => 'pending',
-                    'url' => "/seller/dashboard"
-                ],
-            );
-        });
+        SendNotificationJob::dispatch(
+            (int) $store->user_id,
+            'store',
+            'Store Under Re-review',
+            "Your store '{$store->store_name}' has been placed back under review by an admin.",
+            [
+                'store_uuid' => (string) $store->uuid,
+                'status' => 'pending',
+                'url' => '/seller/dashboard',
+            ]
+        );
 
         
 

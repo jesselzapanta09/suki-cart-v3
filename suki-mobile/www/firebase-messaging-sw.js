@@ -42,7 +42,7 @@ self.addEventListener('notificationclick', (event) => {
 
     const targetUrl = (event.notification.data && event.notification.data.url)
         ? event.notification.data.url
-        : '/notifications';
+        : '/';
 
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {

@@ -1,4 +1,84 @@
-import { saveFCMToken } from './notificationService.js'; // reuse your API
+import { deleteFCMToken, saveFCMToken } from './notificationService.js';
+import { getStoredToken } from '../utils/auth';
+
+let mobileMessageListenerReady = false;
+let mobileTokenRefreshListenerReady = false;
+
+function getFirebasePlugin() {
+    return typeof window !== 'undefined' ? window.FirebasePlugin : null;
+}
+
+function callPlugin(methodName, ...args) {
+    return new Promise((resolve, reject) => {
+        const plugin = getFirebasePlugin();
+        if (!plugin || typeof plugin[methodName] !== 'function') {
+            reject(new Error(`FirebasePlugin.${methodName} is not available`));
+            return;
+        }
+
+        plugin[methodName](
+            ...args,
+            resolve,
+            reject
+        );
+    });
+}
+
+function getDeviceType() {
+    const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+    return /iPhone|iPad|iPod/i.test(ua) ? 'ios' : 'android';
+}
+
+function buildMobileNotification(message) {
+    const data = message?.data ?? {};
+
+    return {
+        id: data.notification_id || Date.now(),
+        type: data.type || 'system',
+        title: message?.title || data.title || 'Notification',
+        message: message?.body || data.message || '',
+        data,
+        created_at: new Date().toISOString(),
+    };
+}
+
+async function ensureMobilePermission(requestPermission = true) {
+    const plugin = getFirebasePlugin();
+    if (!plugin) {
+        return false;
+    }
+
+    if (typeof plugin.hasPermission === 'function') {
+        const hasPermission = await callPlugin('hasPermission').catch(() => false);
+        if (hasPermission) {
+            return true;
+        }
+    }
+
+    if (!requestPermission || typeof plugin.grantPermission !== 'function') {
+        return false;
+    }
+
+    return callPlugin('grantPermission').catch(() => false);
+}
+
+async function setMobileAutoInitEnabled(enabled) {
+    const plugin = getFirebasePlugin();
+    if (!plugin || typeof plugin.setAutoInitEnabled !== 'function') {
+        return;
+    }
+
+    await callPlugin('setAutoInitEnabled', !!enabled).catch((error) => {
+        console.warn('[Push] Failed to set mobile autoinit:', error);
+    });
+}
+
+async function fetchMobileToken() {
+    return callPlugin('getToken').catch((error) => {
+        console.error('[Push] FirebasePlugin.getToken error:', error);
+        return null;
+    });
+}
 
 export function isMobilePushRuntime() {
     if (typeof window === 'undefined') {
@@ -104,12 +184,30 @@ export function waitForMobilePushReady(timeoutMs = 15000) {
             setTimeout(checkPlugin, pollInterval);
         };
 
-        // Start polling immediately
         setTimeout(checkPlugin, 0);
     });
 }
 
-export async function registerPushMobile() {
+export async function getCurrentMobilePushToken() {
+    const bridgeReady = await waitForCordovaBridge(15000);
+    if (!bridgeReady) {
+        return null;
+    }
+
+    const ready = await waitForMobilePushReady(15000);
+    if (!ready || !getFirebasePlugin()) {
+        return null;
+    }
+
+    return fetchMobileToken();
+}
+
+export async function registerPushMobile(options = {}) {
+    const {
+        requestPermission = true,
+        saveToBackend = true,
+    } = options;
+
     console.log('[Push] Starting mobile push registration...');
 
     const bridgeReady = await waitForCordovaBridge(15000);
@@ -119,62 +217,107 @@ export async function registerPushMobile() {
     }
 
     const ready = await waitForMobilePushReady(15000);
-
-    console.log('[Push] Plugin ready status:', ready);
-    console.log('[Push] window.FirebasePlugin exists?', !!window.FirebasePlugin);
-    console.log('[Push] window.cordova exists?', !!window.cordova);
-
-    if (!ready || !window.FirebasePlugin) {
+    if (!ready || !getFirebasePlugin()) {
         console.error('[Push] Firebase plugin not available after full wait');
         return null;
     }
 
-    return new Promise((resolve) => {
-        console.log('[Push] Calling FirebasePlugin.getToken()...');
+    const hasPermission = await ensureMobilePermission(requestPermission);
+    if (!hasPermission) {
+        console.warn('[Push] Mobile notification permission denied.');
+        return null;
+    }
 
-        window.FirebasePlugin.getToken(
-            async function (token) {
-                try {
-                    console.log('🔥 MOBILE TOKEN:', token);
+    await setMobileAutoInitEnabled(true);
 
-                    if (!token) {
-                        console.warn('[Push] No token returned from plugin');
-                        resolve(null);
-                        return;
-                    }
+    const token = await fetchMobileToken();
+    if (!token) {
+        console.warn('[Push] No token returned from plugin');
+        return null;
+    }
 
-                    console.log('[Push] Saving token to backend...');
-                    await saveFCMToken(token, 'android', 'cordova');
-                    console.log('[Push] Token saved successfully');
-                    resolve(token);
-                } catch (error) {
-                    console.error('[Push] Token save error:', error);
-                    resolve(null);
-                }
-            },
-            function (error) {
-                console.error('[Push] FirebasePlugin.getToken error:', error);
-                resolve(null);
-            }
-        );
+    if (saveToBackend && getStoredToken()) {
+        await saveFCMToken(token, getDeviceType(), 'cordova');
+    }
+
+    return token;
+}
+
+export async function syncMobilePushSubscription() {
+    return registerPushMobile({
+        requestPermission: false,
+        saveToBackend: true,
+    });
+}
+
+export async function unregisterPushMobile() {
+    const plugin = getFirebasePlugin();
+    if (!plugin) {
+        return;
+    }
+
+    const token = await getCurrentMobilePushToken();
+    if (token && getStoredToken()) {
+        await deleteFCMToken(token).catch(() => null);
+    }
+
+    await setMobileAutoInitEnabled(false);
+    await callPlugin('unregister').catch((error) => {
+        console.error('[Push] FirebasePlugin.unregister error:', error);
     });
 }
 
 export function listenPushMobile() {
-    if (!window.FirebasePlugin) return;
+    const plugin = getFirebasePlugin();
+    if (!plugin || mobileMessageListenerReady) {
+        return;
+    }
 
-    window.FirebasePlugin.onMessageReceived(
+    plugin.onMessageReceived(
         function (message) {
-            console.log("📩 Push received:", message);
+            console.log('[Push] Mobile message received:', message);
 
-            if (message.tap) {
-                window.location.href = message.data?.url || '/';
-            } else {
-                alert(message.title + "\n" + message.body);
+            const notification = buildMobileNotification(message);
+            window.dispatchEvent(
+                new CustomEvent('pushNotification', { detail: notification })
+            );
+
+            if (message?.tap) {
+                window.location.href = notification.data?.url || '/';
             }
         },
         function (error) {
-            console.error("Push error:", error);
+            console.error('[Push] Mobile message listener error:', error);
         }
     );
+
+    mobileMessageListenerReady = true;
+}
+
+export function setUpMobileTokenRefreshListener() {
+    const plugin = getFirebasePlugin();
+    if (!plugin || mobileTokenRefreshListenerReady) {
+        return;
+    }
+
+    plugin.onTokenRefresh(
+        async function (token) {
+            console.log('[Push] Mobile token refreshed:', token);
+
+            if (!token || !getStoredToken()) {
+                return;
+            }
+
+            try {
+                await saveFCMToken(token, getDeviceType(), 'cordova');
+            } catch (error) {
+                console.error('[Push] Failed to save refreshed mobile token:', error);
+            }
+        },
+        function (error) {
+            console.error('[Push] Mobile token refresh listener error:', error);
+        }
+    );
+
+    mobileTokenRefreshListenerReady = true;
 }
