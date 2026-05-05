@@ -12,13 +12,14 @@ import {
     registerPushSubscription,
     unregisterPushSubscription,
 } from "../../services/notificationService";
-import { getMessaging, getToken } from 'firebase/messaging';
+import { isCordova } from "../../services/pushHelper";
+import { isMobilePushRuntime, registerPushMobile } from "../../services/pushMobile";
 
 const TYPE_META = {
-    order:  { icon: ShoppingBag, bg: "bg-green-100",  text: "text-green-600",  label: "Order"  },
-    promo:  { icon: Tag,         bg: "bg-orange-100", text: "text-orange-500", label: "Promo"  },
-    store:  { icon: Store,       bg: "bg-purple-100", text: "text-purple-600", label: "Store"  },
-    system: { icon: Settings,    bg: "bg-blue-100",   text: "text-blue-500",   label: "System" },
+    order: { icon: ShoppingBag, bg: "bg-green-100", text: "text-green-600", label: "Order" },
+    promo: { icon: Tag, bg: "bg-orange-100", text: "text-orange-500", label: "Promo" },
+    store: { icon: Store, bg: "bg-purple-100", text: "text-purple-600", label: "Store" },
+    system: { icon: Settings, bg: "bg-blue-100", text: "text-blue-500", label: "System" },
 };
 
 function getTypeMeta(type) {
@@ -27,13 +28,13 @@ function getTypeMeta(type) {
 
 function timeAgo(dateStr) {
     const diff = Date.now() - new Date(dateStr).getTime();
-    const mins  = Math.floor(diff / 60000);
-    if (mins < 1)   return "just now";
-    if (mins < 60)  return `${mins}m ago`;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
     const hrs = Math.floor(mins / 60);
-    if (hrs  < 24)  return `${hrs}h ago`;
+    if (hrs < 24) return `${hrs}h ago`;
     const days = Math.floor(hrs / 24);
-    if (days < 7)   return `${days}d ago`;
+    if (days < 7) return `${days}d ago`;
     return new Date(dateStr).toLocaleDateString();
 }
 
@@ -100,19 +101,19 @@ function NotificationItem({ n, onMarkRead, onDelete, onOpen }) {
 export default function NotificationsPage() {
     const navigate = useNavigate();
     const [notifications, setNotifications] = useState([]);
-    const [meta, setMeta]                   = useState(null);
-    const [loading, setLoading]             = useState(true);
-    const [loadingMore, setLoadingMore]     = useState(false);
-    const [tab, setTab]                     = useState("all");
-    const [pushEnabled, setPushEnabled]     = useState(false);
-    const [pushLoading, setPushLoading]     = useState(false);
+    const [meta, setMeta] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [tab, setTab] = useState("all");
+    const [pushEnabled, setPushEnabled] = useState(false);
+    const [pushLoading, setPushLoading] = useState(false);
 
     const unreadCount = notifications.filter(n => !n.read_at).length;
 
     // ── Fetch notifications ─────────────────────────────────────────────────────
     const fetchPage = useCallback(async (page = 1, replace = true) => {
         if (replace) setLoading(true);
-        else         setLoadingMore(true);
+        else setLoadingMore(true);
         try {
             const res = await getNotifications(page, 20);
             const items = res.data ?? [];
@@ -130,25 +131,49 @@ export default function NotificationsPage() {
 
     // ── Check current push subscription state ───────────────────────────────────
     useEffect(() => {
-        if (!('serviceWorker' in navigator)) return;
-        // If permission not granted, we know push is disabled
-        if (Notification.permission !== 'granted') {
+        // 📱 CORDOVA FIRST (IMPORTANT)
+        if (isMobilePushRuntime() || isCordova()) {
+            console.log("📱 Mobile runtime detected - skip web Firebase");
+            setPushEnabled(false);
+            return; // 🔥 STOP here
+        }
+
+        // 🌐 WEB ONLY BELOW
+        if (window.location.protocol === 'file:') {
+            setPushEnabled(true);
+            return;
+        }
+
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+
+        if ("Notification" in window && Notification.permission !== 'granted') {
             setPushEnabled(false);
             return;
         }
 
-        // Try to read existing FCM token (without prompting)
         (async () => {
             try {
+                // Dynamically import Firebase messaging only for web
+                const { getMessaging, getToken, isSupported } = await import('firebase/messaging');
+
+                const supported = await isSupported().catch(() => false);
+                if (!supported) {
+                    setPushEnabled(false);
+                    return;
+                }
+
                 const messaging = getMessaging();
+
                 const registration = await navigator.serviceWorker.ready;
+
                 const token = await getToken(messaging, {
                     vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
                     serviceWorkerRegistration: registration,
                 }).catch(() => null);
+
                 setPushEnabled(!!token);
-            } catch {
-                // ignore
+            } catch (err) {
+                console.log("Web messaging skipped:", err);
             }
         })();
     }, []);
@@ -197,24 +222,58 @@ export default function NotificationsPage() {
     };
 
     const handleTogglePush = async () => {
-        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-            antMessage.warning("Push notifications are not supported in this browser.");
-            return;
-        }
-
         setPushLoading(true);
+
         try {
+            const cordovaRuntime = isCordova() || window.location.protocol === 'file:' || document.URL.startsWith('file:');
+
+            // 📱 CORDOVA FIRST (CRITICAL)
+            if (cordovaRuntime) {
+                console.log("📱 Cordova push flow");
+
+                if (pushEnabled) {
+                    setPushEnabled(false);
+                    antMessage.success("Push notifications disabled.");
+                } else {
+                    const token = await registerPushMobile();
+                    if (token) {
+                        setPushEnabled(true);
+                        antMessage.success("Push notifications enabled!");
+                    } else {
+                        setPushEnabled(false);
+                        antMessage.error("Failed to enable mobile push notifications.");
+                    }
+                }
+
+                return; // 🔥 stop here
+            }
+
+            // Safety guard: if runtime now looks mobile, do not execute browser flow.
+            if (isMobilePushRuntime()) {
+                antMessage.warning("Mobile push plugin is not ready yet. Please reopen the app and try again.");
+                return;
+            }
+
+            // 🌐 WEB FLOW
+            if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+                antMessage.warning("Push notifications are not supported in this browser.");
+                return;
+            }
+
             if (pushEnabled) {
                 await unregisterPushSubscription();
                 setPushEnabled(false);
                 antMessage.success("Push notifications disabled.");
             } else {
                 const perm = await Notification.requestPermission();
+
                 if (perm !== 'granted') {
-                    antMessage.warning("Permission denied. Enable notifications in your browser settings.");
+                    antMessage.warning("Permission denied.");
                     return;
                 }
+
                 const sub = await registerPushSubscription();
+
                 if (sub) {
                     setPushEnabled(true);
                     antMessage.success("Push notifications enabled!");
@@ -222,7 +281,9 @@ export default function NotificationsPage() {
                     antMessage.error("Failed to enable push notifications.");
                 }
             }
-        } catch {
+
+        } catch (err) {
+            console.error(err);
             antMessage.error("Something went wrong.");
         } finally {
             setPushLoading(false);
@@ -235,7 +296,7 @@ export default function NotificationsPage() {
         : notifications;
 
     const currentPage = meta?.current_page ?? 1;
-    const lastPage    = meta?.last_page    ?? 1;
+    const lastPage = meta?.last_page ?? 1;
 
     return (
         <div className="p-4 md:p-6 max-w-2xl mx-auto">

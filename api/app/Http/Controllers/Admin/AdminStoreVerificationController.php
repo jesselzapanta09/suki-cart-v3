@@ -203,17 +203,17 @@ class AdminStoreVerificationController extends Controller
 
 
         SendNotificationJob::dispatch(function () use ($store) {
-            NotificationHelper::send(
-            userId: $store->user_id,
-            type: 'store',
-            title: 'Store Under Re-review',
-            message: "Your store '{$store->store_name}' has been placed back under review by an admin.",
-            data: [
-                'store_uuid' => $store->uuid,
-                'status' => 'pending',
-                'url' => "/seller/dashboard"
-            ],
-        );
+                NotificationHelper::send(
+                userId: $store->user_id,
+                type: 'store',
+                title: 'Store Under Re-review',
+                message: "Your store '{$store->store_name}' has been placed back under review by an admin.",
+                data: [
+                    'store_uuid' => $store->uuid,
+                    'status' => 'pending',
+                    'url' => "/seller/dashboard"
+                ],
+            );
         });
 
         

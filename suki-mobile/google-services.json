@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "68185417879",
+    "project_id": "suki-cart-7b5bc",
+    "storage_bucket": "suki-cart-7b5bc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:68185417879:android:c8d963c290c395242861d2",
+        "android_client_info": {
+          "package_name": "suki.cart.android"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC9vmwko73hoCXThlQBkx3Sh3JGU4MTyA4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

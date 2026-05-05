@@ -8,6 +8,7 @@ use App\Jobs\SendNotificationJob;
 use App\Models\StoreVerification;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class SellerStoreController extends Controller
 {
@@ -82,6 +83,11 @@ class SellerStoreController extends Controller
                     'url' => '/admin/seller-verify/' . $store->uuid,
                 ]
             );
+
+            Log::info('ADMIN CHECK', [
+                'admin_id' => $admin->id,
+                'has_token' => \App\Models\PushSubscription::where('user_id', $admin->id)->exists()
+            ]);
 
         });
 

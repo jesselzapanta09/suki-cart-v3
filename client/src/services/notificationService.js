@@ -1,7 +1,57 @@
 import api from './api';
-import { getMessaging, getToken, deleteToken, onMessage } from 'firebase/messaging';
+import { isCordova } from './pushHelper';
 
-// ── Notifications ──────────────────────────────────────────────────────────────
+let foregroundMessageListenerReady = false;
+let messagingLib = null;
+
+/**
+ * Dynamically load Firebase messaging SDK ONLY if not in Cordova environment
+ * This prevents "unsupported-browser" error in Cordova
+ */
+async function loadMessaging() {
+    if (isCordova()) {
+        console.log('[Push] Cordova detected - Firebase Web SDK not loaded');
+        return null;
+    }
+
+    if (!messagingLib) {
+        try {
+            messagingLib = await import('firebase/messaging');
+        } catch (err) {
+            console.error('[Push] Failed to load Firebase messaging:', err);
+            return null;
+        }
+    }
+
+    return messagingLib;
+}
+
+async function isMessagingSupportedInThisEnvironment() {
+    if (isCordova()) {
+        return false;
+    }
+
+    if (
+        typeof window === 'undefined' ||
+        typeof navigator === 'undefined' ||
+        window.location?.protocol === 'file:'
+    ) {
+        return false;
+    }
+
+    if (!('serviceWorker' in navigator) || !('Notification' in window) || !('PushManager' in window)) {
+        return false;
+    }
+
+    const lib = await loadMessaging();
+    if (!lib || typeof lib.isSupported !== 'function') {
+        return false;
+    }
+
+    return lib.isSupported().catch(() => false);
+}
+
+// ── Notifications ──────────────────────────────────────────I────────────────────
 
 export function getNotifications(page = 1, perPage = 20) {
     return api.get('/notifications', { params: { page, per_page: perPage } });
@@ -45,12 +95,31 @@ export function deleteFCMToken(deviceToken) {
  * Request notification permission and get FCM token
  */
 export async function registerPushSubscription() {
-    if (!('serviceWorker' in navigator) || !('Notification' in window)) {
+    // Guard against Cordova/mobile environments where Notification API doesn't exist
+    if (isCordova()) {
+        console.warn('[Push] Not supported in Cordova environment.');
+        return null;
+    }
+
+    if (!('serviceWorker' in navigator) || !('Notification' in window) || !('PushManager' in window)) {
         console.warn('[Push] Not supported in this environment.');
         return null;
     }
 
     try {
+        const supported = await isMessagingSupportedInThisEnvironment();
+        if (!supported) {
+            console.warn('[Push] Firebase messaging is not supported in this environment.');
+            return null;
+        }
+
+        const lib = await loadMessaging();
+        if (!lib) {
+            console.warn('[Push] Failed to load Firebase messaging SDK.');
+            return null;
+        }
+
+        const { getMessaging, getToken } = lib;
         const messaging = getMessaging();
 
         // Request notification permission
@@ -93,9 +162,26 @@ export async function registerPushSubscription() {
  * Unregister and remove FCM token
  */
 export async function unregisterPushSubscription() {
-    if (!('serviceWorker' in navigator)) return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+
+    if (isCordova()) {
+        console.warn('[Push] Unregister not supported in Cordova environment.');
+        return;
+    }
 
     try {
+        const supported = await isMessagingSupportedInThisEnvironment();
+        if (!supported) {
+            return;
+        }
+
+        const lib = await loadMessaging();
+        if (!lib) {
+            console.warn('[Push] Failed to load Firebase messaging SDK.');
+            return;
+        }
+
+        const { getMessaging, getToken, deleteToken } = lib;
         const messaging = getMessaging();
         const registration = await navigator.serviceWorker.ready.catch(() => null);
         const token = await getToken(messaging, {
@@ -115,8 +201,30 @@ export async function unregisterPushSubscription() {
 /**
  * Set up listener for foreground messages
  */
-export function setUpMessageListener() {
+export async function setUpMessageListener() {
+    if (foregroundMessageListenerReady) {
+        return;
+    }
+
+    if (isCordova()) {
+        console.log("📱 Skip web listener (Cordova)");
+        return;
+    }
+
     try {
+        const supported = await isMessagingSupportedInThisEnvironment();
+        if (!supported) {
+            console.warn('[Push] Foreground listener skipped: unsupported environment.');
+            return;
+        }
+
+        const lib = await loadMessaging();
+        if (!lib) {
+            console.warn('[Push] Failed to load Firebase messaging SDK.');
+            return;
+        }
+
+        const { getMessaging, onMessage } = lib;
         const messaging = getMessaging();
 
         onMessage(messaging, (payload) => {
@@ -126,11 +234,13 @@ export function setUpMessageListener() {
             const body = payload.notification?.body || '';
 
             // 🔔 SHOW NOTIFICATION
-            if (Notification.permission === 'granted') {
-                new Notification(title, {
-                    body: body,
-                    icon: '/suki-cart-logo.png',
-                });
+            if (!isCordova() && "Notification" in window) {
+                if (Notification.permission === 'granted') {
+                    new Notification(title, {
+                        body: body,
+                        icon: '/suki-cart-logo.png',
+                    });
+                }
             }
 
             // OPTIONAL: still dispatch event to your app
@@ -147,6 +257,8 @@ export function setUpMessageListener() {
                 new CustomEvent('pushNotification', { detail: notification })
             );
         });
+
+        foregroundMessageListenerReady = true;
 
     } catch (err) {
         console.warn('[Push] Failed to set up message listener:', err);

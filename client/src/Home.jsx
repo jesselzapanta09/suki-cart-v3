@@ -86,6 +86,8 @@ export default function Home() {
         }
     };
 
+    console.log("NEW BUILD LOADED 🔥");
+
     return (
         <div className="font-body bg-gray-50">
             <Slider />

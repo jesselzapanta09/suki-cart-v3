@@ -125,11 +125,11 @@ class FCMService
         $credentialsArray = json_decode($this->serviceAccountJson, true);
 
         if (!$credentialsArray) {
-            \Log::error('[FCM] Invalid JSON');
+            Log::error('[FCM] Invalid JSON');
             return null;
         }
 
-        $credentials = new \Google\Auth\Credentials\ServiceAccountCredentials(
+        $credentials = new ServiceAccountCredentials(
             'https://www.googleapis.com/auth/firebase.messaging',
             $credentialsArray
         );
@@ -141,8 +141,8 @@ class FCMService
 
         return $this->accessToken;
 
-    } catch (\Throwable $e) {
-        \Log::error('[FCM] Token error', [
+    } catch (Throwable $e) {
+        Log::error('[FCM] Token error', [
             'error' => $e->getMessage(),
         ]);
         return null;
