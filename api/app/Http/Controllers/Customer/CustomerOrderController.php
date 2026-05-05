@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers\Customer;
 
-use App\Helpers\NotificationHelper;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Customer\StoreOrderRequest;
+use App\Jobs\SendNotificationJob;
 use App\Models\Cart;
 use App\Models\OrderItem;
 use App\Models\Product;
@@ -408,17 +408,17 @@ class CustomerOrderController extends Controller
         foreach ($items as $item) {
             $store = $item->product?->store;
             if ($store) {
-                NotificationHelper::send(
-                    userId: $store->user_id,
-                    type: 'order',
-                    title: 'New Product Order',
-                    message: "{$item->product?->name} was ordered by a customer.",
-                    data: [
+                SendNotificationJob::dispatch(
+                    (int) $store->user_id,
+                    'order',
+                    'New Product Order',
+                    "{$item->product?->name} was ordered by a customer.",
+                    [
                         'checkout_no' => $item->checkout_no,
                         'order_item_id' => $item->id,
                         'status' => 'pending',
                         'url' => $this->sellerOrderUrl($item),
-                    ],
+                    ]
                 );
             }
         }
@@ -428,17 +428,17 @@ class CustomerOrderController extends Controller
     {
         $store = $item->product?->store;
         if ($store) {
-            NotificationHelper::send(
-                userId: $store->user_id,
-                type: 'order',
-                title: 'Product Order Cancelled',
-                message: "The customer cancelled {$item->product?->name}. Reason: {$reason}",
-                data: [
+            SendNotificationJob::dispatch(
+                (int) $store->user_id,
+                'order',
+                'Product Order Cancelled',
+                "The customer cancelled {$item->product?->name}. Reason: {$reason}",
+                [
                     'checkout_no' => $item->checkout_no,
                     'order_item_id' => $item->id,
                     'status' => 'cancelled',
                     'url' => $this->sellerOrderUrl($item),
-                ],
+                ]
             );
         }
     }
@@ -448,17 +448,17 @@ class CustomerOrderController extends Controller
         $store = $item->product?->store;
 
         if ($store) {
-            NotificationHelper::send(
-                userId: $store->user_id,
-                type: 'order',
-                title: 'Product Delivered',
-                message: "The customer confirmed delivery for {$item->product?->name}.",
-                data: [
+            SendNotificationJob::dispatch(
+                (int) $store->user_id,
+                'order',
+                'Product Delivered',
+                "The customer confirmed delivery for {$item->product?->name}.",
+                [
                     'checkout_no' => $item->checkout_no,
                     'order_item_id' => $item->id,
                     'status' => 'delivered',
                     'url' => $this->sellerOrderUrl($item),
-                ],
+                ]
             );
         }
     }

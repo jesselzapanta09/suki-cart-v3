@@ -278,7 +278,7 @@ export default function CartIndex() {
                                 </div>
                                 <h2 className="text-xl font-bold text-green-900 mb-2">Your cart is empty</h2>
                                 <p className="text-gray-500 text-sm mb-6">Add some products to get started.</p>
-                                <Link to="/customer/dashboard">
+                                <Link to="/">
                                     <Button type="primary" size="large" className="rounded-xl font-semibold" icon={<ShoppingBag size={16} />}>
                                         Browse Products
                                     </Button>

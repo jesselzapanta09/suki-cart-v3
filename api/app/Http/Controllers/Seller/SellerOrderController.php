@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Seller;
 
-use App\Helpers\NotificationHelper;
 use App\Http\Controllers\Controller;
+use App\Jobs\SendNotificationJob;
 use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ProductVariant;
@@ -371,35 +371,35 @@ class SellerOrderController extends Controller
             $message .= " Reason: {$validated['cancellation_reason']}.";
         }
 
-        NotificationHelper::send(
-            userId: $item->user_id,
-            type: 'order',
-            title: $this->statusTitle($status),
-            message: $message,
-            data: [
+        SendNotificationJob::dispatch(
+            (int) $item->user_id,
+            'order',
+            $this->statusTitle($status),
+            $message,
+            [
                 'checkout_no' => $item->checkout_no,
                 'order_item_id' => $item->id,
                 'status' => $status,
                 'status_label' => $statusLabel,
                 'url' => $this->customerOrderUrl($item),
-            ],
+            ]
         );
     }
 
     private function notifyCustomerShipmentUpdated(OrderItem $item, $store): void
     {
-        NotificationHelper::send(
-            userId: $item->user_id,
-            type: 'order',
-            title: 'Courier Details Updated',
-            message: "{$store->store_name} updated courier details for {$item->product?->name}. Courier: {$item->courier_name}. Tracking: {$item->tracking_number}.",
-            data: [
+        SendNotificationJob::dispatch(
+            (int) $item->user_id,
+            'order',
+            'Courier Details Updated',
+            "{$store->store_name} updated courier details for {$item->product?->name}. Courier: {$item->courier_name}. Tracking: {$item->tracking_number}.",
+            [
                 'checkout_no' => $item->checkout_no,
                 'order_item_id' => $item->id,
                 'status' => $item->status,
                 'status_label' => $this->statusLabel($item->status),
                 'url' => $this->customerOrderUrl($item),
-            ],
+            ]
         );
     }
 
