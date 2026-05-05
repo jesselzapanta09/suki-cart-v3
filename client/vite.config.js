@@ -3,38 +3,33 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig(({ mode }) => {
-  const isDev = mode === 'development'
+  const isCordova = mode === 'cordova'
 
   return {
-    base: './', // IMPORTANT for Cordova (file:// support)
-
+    base: isCordova ? './' : '/',
     plugins: [
       react(),
       tailwindcss(),
     ],
-
     build: {
-      outDir: '../suki-mobile/www',
+      outDir: isCordova ? '../cordova-mobile/www' : 'dist',
       emptyOutDir: true,
     },
-
     server: {
       host: '0.0.0.0',
       port: 3000,
-
-      // ONLY for dev (ignored in production build)
-      proxy: isDev
-        ? {
-            '/api': {
-              target: 'http://192.168.123.3:8000', // 👈 your Laravel local IP
-              changeOrigin: true,
-            },
-            '/storage': {
-              target: 'http://192.168.123.3:8000',
-              changeOrigin: true,
-            },
-          }
-        : undefined,
+      proxy: {
+        '/api': {
+          target: 'https://jezyk.me',
+          // target: 'http://127.0.0.1:8000',
+          changeOrigin: true,
+        },
+        '/storage': {
+          target: 'https://jezyk.me',
+          // target: 'http://127.0.0.1:8000',
+          changeOrigin: true,
+        },
+      },
     },
   }
 })
