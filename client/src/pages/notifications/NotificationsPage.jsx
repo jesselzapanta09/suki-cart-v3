@@ -20,6 +20,7 @@ import {
     registerPushMobile,
     unregisterPushMobile,
 } from "../../services/pushMobile";
+import { navigateWithinApp } from "../../services/inAppNavigation";
 
 const TYPE_META = {
     order: { icon: ShoppingBag, bg: "bg-green-100", text: "text-green-600", label: "Order" },
@@ -190,7 +191,9 @@ export default function NotificationsPage() {
         }
 
         if (notification.data?.url) {
-            navigate(notification.data.url);
+            if (!navigateWithinApp(notification.data.url)) {
+                navigate(notification.data.url);
+            }
         }
     };
 

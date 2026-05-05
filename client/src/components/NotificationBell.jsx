@@ -3,6 +3,7 @@ import { Badge, Drawer, Dropdown } from "antd";
 import { Bell, ShoppingBag, Tag, Settings, Store, CheckCheck } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/auth-context";
+import { navigateWithinApp } from "../services/inAppNavigation";
 import {
     getNotifications,
     getUnreadCount,
@@ -180,12 +181,14 @@ export default function NotificationBell() {
                                     // Navigate or reload based on URL
                                     if (n.data && n.data.url) {
                                         setOpen(false);
-                                        if (location.pathname === n.data.url) {
-                                            // Same URL - reload the page
-                                            window.location.reload();
-                                        } else {
-                                            // Different URL - navigate
-                                            navigate(n.data.url);
+                                        const handledInApp = navigateWithinApp(n.data.url);
+
+                                        if (!handledInApp) {
+                                            if (location.pathname === n.data.url) {
+                                                window.location.reload();
+                                            } else {
+                                                navigate(n.data.url);
+                                            }
                                         }
                                     }
                                 }}
@@ -213,7 +216,13 @@ export default function NotificationBell() {
             </div>
             <div className="px-4 py-2.5 text-center border-t border-gray-100">
                 <button
-                    onClick={() => { setOpen(false); navigate(notificationsPath); }}
+                    onClick={() => {
+                        setOpen(false);
+
+                        if (!navigateWithinApp(notificationsPath)) {
+                            navigate(notificationsPath);
+                        }
+                    }}
                     className="text-xs text-green-600 font-medium cursor-pointer hover:underline bg-transparent border-none"
                 >
                     View all notifications

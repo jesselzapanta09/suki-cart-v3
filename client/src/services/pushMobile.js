@@ -1,4 +1,5 @@
 import { deleteFCMToken, saveFCMToken } from './notificationService.js';
+import { navigateWithinApp } from './inAppNavigation.js';
 import { getStoredToken } from '../utils/auth';
 
 let mobileMessageListenerReady = false;
@@ -37,6 +38,10 @@ function getMobileMessageData(message) {
     }
 
     return message && typeof message === 'object' ? message : {};
+}
+
+function navigateMobileToRoute(rawUrl) {
+    navigateWithinApp(rawUrl);
 }
 
 function buildMobileNotification(message) {
@@ -293,7 +298,7 @@ export function listenPushMobile() {
             );
 
             if (message?.tap) {
-                window.location.href = notification.data?.url || '/';
+                navigateMobileToRoute(notification.data?.url);
             }
         },
         function (error) {
