@@ -34,6 +34,9 @@
     <allow-intent href="http://*/*" />
     <allow-intent href="https://*/*" />
 
+    <!-- Main App Icon -->
+    <icon src="res/suki-cart-logo-home.png" />
+
     <!-- ===================================================== -->
     <!-- Android settings                                     -->
     <!-- ===================================================== -->

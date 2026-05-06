@@ -1,2 +1,2 @@
-# SukiCart Frontend
+# SukiCart Frontend v2
 
