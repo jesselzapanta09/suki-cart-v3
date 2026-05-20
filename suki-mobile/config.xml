@@ -1,7 +1,8 @@
 <?xml version='1.0' encoding='utf-8'?>
-<widget id="suki.cart.android" version="1.0.0"
-    xmlns="http://www.w3.org/ns/widgets"
-    xmlns:cdv="http://cordova.apache.org/ns/1.0">
+<widget id="suki.cart.android"
+        version="1.0.0"
+        xmlns="http://www.w3.org/ns/widgets"
+        xmlns:cdv="http://cordova.apache.org/ns/1.0">
 
     <name>SukiCart</name>
 
@@ -9,59 +10,41 @@
         Your Trusted Online Shop
     </description>
 
-    <author email="dev@cordova.apache.org" href="https://cordova.apache.org">
+    <author email="jeszapanta9@gmail.com"
+            href="https://jeszapanta.vercel.app/">
         Jessel Zapanta
     </author>
 
     <content src="index.html" />
 
-    <!-- ===================================================== -->
-    <!-- ✅ TESTING: Allow ALL network requests (API calls)     -->
-    <!-- Required for fetch/axios to work in Cordova WebView   -->
-    <!-- ===================================================== -->
+    <!-- Allow API + images -->
     <access origin="*" />
 
-    <!-- ===================================================== -->
-    <!-- ✅ TESTING: Allow navigation to external URLs          -->
-    <!-- Needed for API + images + redirects                   -->
-    <!-- ===================================================== -->
-    <allow-navigation href="http://*/*" />
+    <!-- Allow external navigation -->
     <allow-navigation href="https://*/*" />
 
-    <!-- ===================================================== -->
-    <!-- Default intents (safe to keep)                        -->
-    <!-- ===================================================== -->
-    <allow-intent href="http://*/*" />
+    <!-- Allow opening external links -->
     <allow-intent href="https://*/*" />
+    <allow-intent href="sukicart:*" />
 
-    <!-- Main App Icon -->
+    <preference name="CustomURLSchemePluginClearsAndroidIntent" value="true" />
+
+    <!-- App icon -->
     <icon src="res/suki-cart-logo-home.png" />
 
-    <!-- ===================================================== -->
-    <!-- Android settings                                     -->
-    <!-- ===================================================== -->
-    <preference name="AndroidXEnabled" value="true" />
-    <preference name="GradlePluginGoogleServicesEnabled" value="true" />
-
-    <!-- SDK versions -->
-    <preference name="android-compileSdkVersion" value="34" />
-    <preference name="android-targetSdkVersion" value="34" />
-    <preference name="android-minSdkVersion" value="24" />
-
-    <preference name="scheme" value="http" />
-
-    <!-- ===================================================== -->
-    <!-- ✅ TESTING: Allow HTTP (VERY IMPORTANT)                -->
-    <!-- Without this → API calls to http://192.x.x.x blocked  -->
-    <!-- ===================================================== -->
+    <!-- Android -->
     <platform name="android">
+
+        <preference name="AndroidXEnabled" value="true" />
+        <preference name="GradlePluginGoogleServicesEnabled" value="true" />
+
+        <preference name="android-compileSdkVersion" value="34" />
+        <preference name="android-targetSdkVersion" value="34" />
+        <preference name="android-minSdkVersion" value="24" />
+
+        <!-- WebView debugging -->
         <preference name="android-webview-debugging-enabled" value="true" />
-        <edit-config file="app/src/main/AndroidManifest.xml"
-                    mode="merge"
-                    target="/manifest/application"
-                    xmlns:android="http://schemas.android.com/apk/res/android">
-            <application android:usesCleartextTraffic="true" />
-        </edit-config>
+
     </platform>
 
 </widget>

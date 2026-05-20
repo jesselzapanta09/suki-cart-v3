@@ -13,12 +13,12 @@ class CustomerProductReviewController extends Controller
     public function store(StoreProductReviewRequest $request, int $itemId)
     {
         $item = OrderItem::query()
-            ->where('user_id', $request->user()->id)
             ->where('id', $itemId)
-            ->with(['product', 'variant', 'review'])
+            ->whereHas('order', fn ($query) => $query->where('user_id', $request->user()->id))
+            ->with(['order', 'product', 'variant', 'review'])
             ->firstOrFail();
 
-        if ($item->status !== 'delivered') {
+        if ($item->order?->status !== 'delivered') {
             return response()->json([
                 'message' => 'Cannot review product.',
                 'error' => 'Only delivered items can be reviewed.',

@@ -76,7 +76,7 @@ class HomeProductSearchController extends Controller
             ], 'price')->orderBy('sort_price', $direction);
         } elseif ($sortField === 'sold') {
             $query->withSum([
-                'orderItems as sold' => fn ($orderQuery) => $orderQuery->where('status', 'delivered'),
+                'orderItems as sold' => fn ($orderQuery) => $orderQuery->whereHas('order', fn ($orderSubQuery) => $orderSubQuery->where('status', 'delivered')),
             ], 'quantity')->orderBy('sold', $sortOrder === 'ascend' ? 'asc' : 'desc');
             $includesSold = true;
         } elseif (in_array($sortField, $allowedSorts, true)) {
@@ -91,7 +91,7 @@ class HomeProductSearchController extends Controller
 
         if (!$includesSold) {
             $productsQuery->withSum([
-                'orderItems as sold' => fn ($orderQuery) => $orderQuery->where('status', 'delivered'),
+                'orderItems as sold' => fn ($orderQuery) => $orderQuery->whereHas('order', fn ($orderSubQuery) => $orderSubQuery->where('status', 'delivered')),
             ], 'quantity');
         }
 
@@ -124,7 +124,7 @@ class HomeProductSearchController extends Controller
             ->withCount('reviews')
             ->withAvg('reviews', 'rating')
             ->withSum([
-                'orderItems as sold' => fn ($orderQuery) => $orderQuery->where('status', 'delivered'),
+                'orderItems as sold' => fn ($orderQuery) => $orderQuery->whereHas('order', fn ($orderSubQuery) => $orderSubQuery->where('status', 'delivered')),
             ], 'quantity');
 
         if ($product->category_id || !empty($keywords)) {
@@ -197,7 +197,7 @@ class HomeProductSearchController extends Controller
             ->withCount('reviews')
             ->withAvg('reviews', 'rating')
             ->withSum([
-                'orderItems as sold' => fn ($orderQuery) => $orderQuery->where('status', 'delivered'),
+                'orderItems as sold' => fn ($orderQuery) => $orderQuery->whereHas('order', fn ($orderSubQuery) => $orderSubQuery->where('status', 'delivered')),
             ], 'quantity')
             ->firstOrFail();
 

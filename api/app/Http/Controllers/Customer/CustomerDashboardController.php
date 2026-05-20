@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Customer;
 
 use App\Http\Controllers\Controller;
 use App\Models\Cart;
-use App\Models\OrderItem;
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductReview;
 use Illuminate\Http\JsonResponse;
@@ -13,16 +13,12 @@ use Illuminate\Support\Facades\DB;
 
 class CustomerDashboardController extends Controller
 {
-    /**
-     * GET /api/customer/dashboard
-     * Summary metrics and recent activity for the authenticated customer.
-     */
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
 
         $cartQuery = Cart::query()->where('user_id', $user->id);
-        $orderQuery = OrderItem::query()->where('user_id', $user->id);
+        $orderQuery = Order::query()->where('user_id', $user->id);
 
         $orderCounts = (clone $orderQuery)
             ->select('status', DB::raw('COUNT(*) as total'))
@@ -54,35 +50,37 @@ class CustomerDashboardController extends Controller
 
         $recentOrders = (clone $orderQuery)
             ->with([
-                'product.images:id,product_id,image_path,sort_order',
-                'product.store:id,uuid,store_name',
-                'variant:id,product_id,name,price,stock',
-                'review:id,order_item_id,rating,review',
+                'store:id,uuid,store_name',
+                'items.product.images:id,product_id,image_path,sort_order',
+                'items.product.store:id,uuid,store_name',
+                'items.variant:id,product_id,name,price,stock',
+                'items.review:id,order_item_id,rating,review',
             ])
             ->latest()
             ->take(5)
             ->get()
-            ->map(function (OrderItem $item) {
-                $lineTotal = (float) $item->price * $item->quantity;
+            ->map(function (Order $order) {
+                $items = $order->items ?? collect();
+                $firstItem = $items->first();
 
                 return [
-                    'id' => $item->id,
-                    'checkout_no' => $item->checkout_no,
-                    'status' => $item->status,
-                    'created_at' => $item->created_at,
-                    'quantity' => $item->quantity,
-                    'price' => (float) $item->price,
-                    'shipping_cost' => (float) $item->shipping_cost,
-                    'item_total' => $item->status === 'cancelled' ? 0 : $lineTotal + (float) $item->shipping_cost,
-                    'product' => $item->product,
-                    'variant' => $item->variant,
-                    'store' => $item->product?->store,
-                    'review' => $item->review ? [
-                        'id' => $item->review->id,
-                        'rating' => $item->review->rating,
-                        'review' => $item->review->review,
+                    'id' => $order->id,
+                    'uuid' => $order->uuid,
+                    'status' => $order->status,
+                    'created_at' => $order->created_at,
+                    'item_count' => $items->count(),
+                    'subtotal' => $order->status === 'cancelled' ? 0 : (float) $order->subtotal_amount,
+                    'shipping_cost' => $order->status === 'cancelled' ? 0 : (float) $order->shipping_cost,
+                    'total_price' => $order->status === 'cancelled' ? 0 : (float) $order->total_amount,
+                    'store' => $order->store,
+                    'preview_item' => $firstItem ? [
+                        'id' => $firstItem->id,
+                        'product' => $firstItem->product,
+                        'variant' => $firstItem->variant,
+                        'quantity' => $firstItem->quantity,
+                        'price' => (float) $firstItem->price,
                     ] : null,
-                    'can_review' => $item->status === 'delivered' && !$item->review,
+                    'can_review' => $order->status === 'delivered' && $items->contains(fn ($item) => !$item->review),
                 ];
             })
             ->values();
@@ -99,7 +97,7 @@ class CustomerDashboardController extends Controller
             ->withCount('reviews')
             ->withAvg('reviews', 'rating')
             ->withSum([
-                'orderItems as sold' => fn ($orderQuery) => $orderQuery->where('status', 'delivered'),
+                'orderItems as sold' => fn ($orderItemsQuery) => $orderItemsQuery->whereHas('order', fn ($orderQuery) => $orderQuery->where('status', 'delivered')),
             ], 'quantity')
             ->latest('created_at')
             ->limit(4)
@@ -119,7 +117,7 @@ class CustomerDashboardController extends Controller
             ->withCount('reviews')
             ->withAvg('reviews', 'rating')
             ->withSum([
-                'orderItems as sold' => fn ($orderQuery) => $orderQuery->where('status', 'delivered'),
+                'orderItems as sold' => fn ($orderItemsQuery) => $orderItemsQuery->whereHas('order', fn ($orderQuery) => $orderQuery->where('status', 'delivered')),
             ], 'quantity')
             ->orderByDesc('sold')
             ->orderByDesc('reviews_avg_rating')
@@ -142,7 +140,7 @@ class CustomerDashboardController extends Controller
                 'reviews_given' => ProductReview::query()->where('user_id', $user->id)->count(),
                 'spend_total' => (float) (clone $orderQuery)
                     ->whereNotIn('status', ['cancelled'])
-                    ->selectRaw('COALESCE(SUM((price * quantity) + shipping_cost), 0) as total')
+                    ->selectRaw('COALESCE(SUM(total_amount), 0) as total')
                     ->value('total'),
             ],
             'cart_preview' => $cartPreview,

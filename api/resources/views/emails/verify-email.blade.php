@@ -143,7 +143,7 @@
             </p>
 
             <div class="cta-wrap">
-                <a href="{{ $frontendUrl }}/verify-email?token={{ $token }}" class="btn">
+                <a href="{{ $frontendUrl }}/open-app/verify-email?token={{ $token }}" class="btn">
                     Verify My Email Address
                 </a>
             </div>
@@ -156,7 +156,7 @@
 
             <div class="fallback">
                 <p>Button not working? Copy and paste this link into your browser:</p>
-                <span class="fallback-url">{{ $frontendUrl }}/verify-email?token={{ $token }}</span>
+                <span class="fallback-url">{{ $frontendUrl }}/open-app/verify-email?token={{ $token }}</span>
             </div>
         </div>
 

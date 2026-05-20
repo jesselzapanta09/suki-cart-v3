@@ -27,12 +27,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 // Debug endpoint to test connectivity
-Route::get('/health', function () {
+Route::get('/health', function (Request $request) {
     return response()->json([
         'status' => 'ok',
         'message' => 'API is reachable',
         'timestamp' => now(),
-        'headers' => request()->headers->all()
+        'headers' => $request->headers->all(),
     ]);
 });
 
@@ -125,12 +125,12 @@ Route::middleware('auth:api')->group(function () {
             Route::put('/products/{product_uuid}/variants/{variant_id}', [SellerProductVariantController::class, 'update'])->where('product_uuid', '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}');
             Route::delete('/products/{product_uuid}/variants/{variant_id}', [SellerProductVariantController::class, 'destroy'])->where('product_uuid', '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}');
 
-            // Item-level orders for this seller's store
-            Route::get('/order-items', [SellerOrderController::class, 'index']);
-            Route::get('/order-items/{item}', [SellerOrderController::class, 'show']);
-            Route::put('/order-items/{item}/status', [SellerOrderController::class, 'updateStatus']);
-            Route::put('/order-items/{item}/shipment', [SellerOrderController::class, 'updateShipment']);
-            Route::put('/order-items/{item}/cancel', [SellerOrderController::class, 'cancelItem']);
+            // Store-level orders for this seller's store
+            Route::get('/orders', [SellerOrderController::class, 'index']);
+            Route::get('/orders/{order}', [SellerOrderController::class, 'show']);
+            Route::put('/orders/{order}/status', [SellerOrderController::class, 'updateStatus']);
+            Route::put('/orders/{order}/shipment', [SellerOrderController::class, 'updateShipment']);
+            Route::put('/orders/{order}/cancel', [SellerOrderController::class, 'cancelOrder']);
         });
     });
 
@@ -147,13 +147,13 @@ Route::middleware('auth:api')->group(function () {
         Route::delete('/cart/{id}', [CustomerCartController::class, 'destroy']);
         Route::delete('/cart', [CustomerCartController::class, 'destroyAll']);
 
-        // Item-level order routes
-        Route::get('/order-items', [CustomerOrderController::class, 'index']);
-        Route::get('/order-items/{item}', [CustomerOrderController::class, 'show']);
-        Route::post('/order-items', [CustomerOrderController::class, 'store']);
-        Route::post('/order-items/calculate-shipping', [CustomerOrderController::class, 'calculateShipping']);
-        Route::put('/order-items/{item}/cancel', [CustomerOrderController::class, 'cancelItem']);
-        Route::put('/order-items/{item}/delivered', [CustomerOrderController::class, 'deliverItem']);
-        Route::post('/order-items/{item}/review', [CustomerProductReviewController::class, 'store']);
+        // Store-level order routes
+        Route::get('/orders', [CustomerOrderController::class, 'index']);
+        Route::get('/orders/{order}', [CustomerOrderController::class, 'show']);
+        Route::post('/orders', [CustomerOrderController::class, 'store']);
+        Route::post('/orders/calculate-shipping', [CustomerOrderController::class, 'calculateShipping']);
+        Route::put('/orders/{order}/cancel', [CustomerOrderController::class, 'cancelOrder']);
+        Route::put('/orders/{order}/received', [CustomerOrderController::class, 'deliverOrder']);
+        Route::post('/orders/items/{item}/review', [CustomerProductReviewController::class, 'store']);
     });
 });

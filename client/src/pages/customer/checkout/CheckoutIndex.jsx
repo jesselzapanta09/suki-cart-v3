@@ -6,6 +6,7 @@ import { useCart } from "../../../context/CartContext";
 import { useAuth } from "../../../context/auth-context";
 import * as orderService from "../../../services/orderService";
 import addressService from "../../../services/addressService";
+import { formatPeso } from "../../../utils/currency";
 import { getStorageUrl } from "../../../utils/storage";
 
 export default function CheckoutIndex() {
@@ -121,6 +122,8 @@ export default function CheckoutIndex() {
         return typeof price === 'number' ? price : Number(price || 0);
     };
 
+    const formatWeightKg = (value) => Number(value || 0).toFixed(2);
+
     const getStock = (item) => Number(item.stock || item.variant?.stock || 0);
 
     const getVariantAttributes = (variant) => {
@@ -173,7 +176,7 @@ export default function CheckoutIndex() {
 
             const response = await orderService.createOrder(orderData);
 
-            if (response?.data?.first_item_id) {
+            if (response?.data?.first_order_uuid) {
                 message.success("Order placed successfully!");
                 removeOrderedItems(items);
                 
@@ -337,7 +340,7 @@ export default function CheckoutIndex() {
                                                     </div>
                                                     <div>
                                                         <p className="text-gray-500 text-xs uppercase tracking-wide">Unit Price</p>
-                                                        <p className="font-medium text-gray-700">₱{getPrice(item).toFixed(2)}</p>
+                                                        <p className="font-medium text-gray-700">{formatPeso(getPrice(item))}</p>
                                                     </div>
 
                                                     <div className="md:col-span-2">
@@ -396,30 +399,38 @@ export default function CheckoutIndex() {
                                         </div>
                                         <div>
                                             <h2 className="text-lg font-bold text-gray-900">Shipping Fees</h2>
-                                            <p className="text-sm text-gray-400 mt-1">Breakdown per product order</p>
+                                            <p className="text-sm text-gray-400 mt-1">Breakdown per store order</p>
                                         </div>
                                     </div>
                                     <div className="space-y-3">
-                                        {shippingData.breakdown.map((item) => (
-                                            <div key={`${item.product_id}-${item.product_variant_id || "none"}-${item.index}`} className="bg-white rounded-lg p-4 border border-orange-100">
+                                        {shippingData.breakdown.map((storeGroup) => (
+                                            <div key={storeGroup.store_id} className="bg-white rounded-lg p-4 border border-orange-100">
                                                 <div className="flex justify-between items-start mb-3">
                                                     <div>
-                                                        <p className="font-semibold text-gray-900">{item.product_name}</p>
-                                                        <p className="text-xs text-gray-500 mt-1">{item.store_name} · Qty {item.quantity} · Total Weight: {item.total_weight}kg</p>
+                                                        <p className="font-semibold text-gray-900">{storeGroup.store_name}</p>
+                                                        <p className="text-xs text-gray-500 mt-1">{storeGroup.items?.length || 0} item{(storeGroup.items?.length || 0) !== 1 ? "s" : ""} · Total Weight: {formatWeightKg(storeGroup.total_weight)}kg</p>
                                                     </div>
+                                                </div>
+                                                <div className="mb-3 rounded-lg bg-orange-50 p-3 text-xs text-gray-600">
+                                                    {(storeGroup.items || []).map((item) => (
+                                                        <div key={`${item.product_id}-${item.product_variant_id || "none"}-${item.index}`} className="flex justify-between gap-3">
+                                                            <span className="truncate">{item.product_name}</span>
+                                                            <span className="shrink-0">Qty {item.quantity}</span>
+                                                        </div>
+                                                    ))}
                                                 </div>
                                                 <div className="space-y-1 text-sm">
                                                     <div className="flex justify-between text-gray-700">
                                                         <span>Base Fee:</span>
-                                                        <span>₱{item.base_fee.toFixed(2)}</span>
+                                                        <span>{formatPeso(storeGroup.base_fee)}</span>
                                                     </div>
                                                     <div className="flex justify-between text-gray-700">
-                                                        <span>Weight Fee ({item.total_weight}kg × ₱50):</span>
-                                                        <span>₱{item.weight_fee.toFixed(2)}</span>
+                                                        <span>Weight Fee ({formatWeightKg(storeGroup.total_weight)}kg × {formatPeso(storeGroup.weight_rate)}):</span>
+                                                        <span>{formatPeso(storeGroup.weight_fee)}</span>
                                                     </div>
                                                     <div className="flex justify-between font-semibold text-orange-600 border-t border-orange-200 pt-2 mt-2">
                                                         <span>Subtotal:</span>
-                                                        <span>₱{item.shipping_fee.toFixed(2)}</span>
+                                                        <span>{formatPeso(storeGroup.shipping_fee)}</span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -470,7 +481,7 @@ export default function CheckoutIndex() {
                         <div className="bg-green-50 rounded-lg p-6 border border-green-200 space-y-3">
                             <div className="flex justify-between items-center">
                                 <span className="text-sm text-gray-700 font-medium">Subtotal (Products):</span>
-                                <span className="text-lg font-semibold text-gray-900">₱{checkedTotal.toFixed(2)}</span>
+                                <span className="text-lg font-semibold text-gray-900">{formatPeso(checkedTotal)}</span>
                             </div>
                             {shippingLoading ? (
                                 <div className="flex justify-between items-center">
@@ -480,12 +491,12 @@ export default function CheckoutIndex() {
                             ) : (
                                 <div className="flex justify-between items-center">
                                     <span className="text-sm text-gray-700 font-medium">Shipping:</span>
-                                    <span className="text-lg font-semibold text-orange-600">₱{shippingCost.toFixed(2)}</span>
+                                    <span className="text-lg font-semibold text-orange-600">{formatPeso(shippingCost)}</span>
                                 </div>
                             )}
                             <div className="border-t border-green-200 pt-3 flex justify-between items-center">
                                 <span className="text-gray-700 font-bold">Total Amount:</span>
-                                <span className="text-3xl font-bold text-green-600">₱{finalTotal.toFixed(2)}</span>
+                                <span className="text-3xl font-bold text-green-600">{formatPeso(finalTotal)}</span>
                             </div>
                         </div>
 

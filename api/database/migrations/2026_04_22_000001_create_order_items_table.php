@@ -2,44 +2,81 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
-        Schema::create('order_items', function (Blueprint $table) {
-            $table->id();
-            $table->uuid('checkout_no')->unique();
-            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('location_id')->constrained()->cascadeOnDelete();
-            $table->string('address_extra')->nullable();
-            $table->text('message')->nullable();
-            $table->foreignId('product_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('product_variant_id')->nullable()->constrained('product_variants')->cascadeOnDelete();
-            $table->integer('quantity');
-            $table->decimal('price', 12, 2); // Product price at time of order
-            $table->decimal('shipping_cost', 12, 2)->default(0);
-            $table->enum('status', ['pending', 'processing', 'shipped', 'delivered', 'cancelled'])->default('pending');
-            $table->string('courier_name')->nullable();
-            $table->string('tracking_number')->nullable();
-            $table->enum('cancelled_by', ['seller', 'customer'])->nullable();
-            $table->text('cancellation_reason')->nullable();
-            $table->timestamp('cancelled_at')->nullable();
-            $table->timestamps();
+        $this->dropForeignIfExists('order_items', 'order_items_order_id_foreign');
+        $this->dropForeignIfExists('order_items', 'order_items_user_id_foreign');
+        $this->dropForeignIfExists('order_items', 'order_items_location_id_foreign');
 
-            $table->index(['user_id', 'status']);
+        if (!Schema::hasTable('order_items')) {
+            Schema::create('order_items', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('order_id')->nullable();
+                $table->text('message')->nullable();
+                $table->foreignId('product_id')->constrained()->cascadeOnDelete();
+                $table->foreignId('product_variant_id')->nullable()->constrained('product_variants')->cascadeOnDelete();
+                $table->integer('quantity');
+                $table->decimal('price', 12, 2);
+                $table->timestamps();
+            });
+
+            return;
+        }
+
+        $this->dropIndexIfExists('order_items', 'order_items_user_id_status_index');
+        $this->dropIndexIfExists('order_items', 'order_items_order_id_status_index');
+        $this->dropIndexIfExists('order_items', 'order_items_checkout_no_unique');
+
+        Schema::table('order_items', function (Blueprint $table) {
+            if (!Schema::hasColumn('order_items', 'order_id')) {
+                $table->unsignedBigInteger('order_id')->nullable()->after('id');
+            }
+
+            $columnsToDrop = [
+                'checkout_no',
+                'user_id',
+                'location_id',
+                'address_extra',
+                'shipping_cost',
+                'status',
+                'courier_name',
+                'tracking_number',
+                'cancelled_by',
+                'cancellation_reason',
+                'cancelled_at',
+            ];
+
+            $existingColumns = array_values(array_filter($columnsToDrop, fn ($column) => Schema::hasColumn('order_items', $column)));
+
+            if ($existingColumns !== []) {
+                $table->dropColumn($existingColumns);
+            }
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('order_items');
+    }
+
+    private function dropForeignIfExists(string $table, string $foreignKey): void
+    {
+        try {
+            DB::statement("ALTER TABLE `{$table}` DROP FOREIGN KEY `{$foreignKey}`");
+        } catch (\Throwable) {
+        }
+    }
+
+    private function dropIndexIfExists(string $table, string $index): void
+    {
+        try {
+            DB::statement("ALTER TABLE `{$table}` DROP INDEX `{$index}`");
+        } catch (\Throwable) {
+        }
     }
 };

@@ -143,7 +143,7 @@
             </p>
 
             <div class="cta-wrap">
-                <a href="{{ $frontendUrl }}/reset-password?token={{ $token }}" class="btn">
+                <a href="{{ $frontendUrl }}/open-app/reset-password?token={{ $token }}" class="btn">
                     Reset My Password
                 </a>
             </div>
@@ -156,7 +156,7 @@
 
             <div class="fallback">
                 <p>Button not working? Copy and paste this link into your browser:</p>
-                <span class="fallback-url">{{ $frontendUrl }}/reset-password?token={{ $token }}</span>
+                <span class="fallback-url">{{ $frontendUrl }}/open-app/reset-password?token={{ $token }}</span>
             </div>
         </div>
 

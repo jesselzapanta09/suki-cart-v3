@@ -19,6 +19,11 @@
     
     <script>
       (function () {
+        window.__sukiPendingOpenUrls = window.__sukiPendingOpenUrls || [];
+        window.handleOpenURL = window.handleOpenURL || function (url) {
+          window.__sukiPendingOpenUrls.push(url);
+        };
+
         var redirect = sessionStorage.getItem('redirect');
         if (redirect) {
           sessionStorage.removeItem('redirect');
@@ -27,9 +32,9 @@
       })();
     </script>
 
-    <script type="module" crossorigin src="./assets/index-o1G6RF6G.js"></script>
+    <script type="module" crossorigin src="./assets/index-C6wnMgVU.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/index.esm2017-kKfTY8Ns.js">
-    <link rel="stylesheet" crossorigin href="./assets/index-DGE_4VVm.css">
+    <link rel="stylesheet" crossorigin href="./assets/index-DQ6R0-Ho.css">
   </head>
   <body>
     <div id="root"></div>
@@ -40,7 +45,7 @@
         document.body.appendChild(cordovaScript);
       }
     </script>
-    <!-- ADd this very important, to know that this is cordova anrdoid. -->
-    <script src="cordova.js"></script>
+<!-- ADd this very important, to know that this is cordova anrdoid. -->
+  <script src="cordova.js"></script>
   </body>
 </html>

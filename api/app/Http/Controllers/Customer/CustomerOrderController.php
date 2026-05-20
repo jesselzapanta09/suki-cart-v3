@@ -6,10 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Customer\StoreOrderRequest;
 use App\Jobs\SendNotificationJob;
 use App\Models\Cart;
+use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
-use App\Models\ProductVariant;
 use App\Models\ProductReview;
+use App\Models\ProductVariant;
 use App\Services\ShippingCalculationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -26,15 +27,15 @@ class CustomerOrderController extends Controller
         $search = trim((string) $request->query('search', ''));
         $perPage = min((int) $request->query('per_page', 15), 50);
 
-        $baseQuery = OrderItem::query()
+        $baseQuery = Order::query()
             ->where('user_id', $user->id);
 
         $filteredBaseQuery = (clone $baseQuery)
             ->when($search !== '', function ($q) use ($search) {
                 $q->where(function ($searchQuery) use ($search) {
                     $searchQuery
-                        ->where('checkout_no', 'like', "%{$search}%")
-                        ->orWhereHas('product', fn ($productQuery) => $productQuery->where('name', 'like', "%{$search}%"));
+                        ->where('uuid', 'like', "%{$search}%")
+                        ->orWhereHas('items.product', fn ($productQuery) => $productQuery->where('name', 'like', "%{$search}%"));
                 });
             });
 
@@ -43,25 +44,33 @@ class CustomerOrderController extends Controller
             ->groupBy('status')
             ->pluck('total', 'status');
 
-        $query = (clone $filteredBaseQuery)
+        $orders = (clone $filteredBaseQuery)
             ->when($status, fn ($q) => $q->where('status', $status))
-            ->with(['location', 'product.images', 'product.store', 'variant', 'review'])
-            ->orderByDesc('created_at');
-
-        $items = $query->paginate($perPage);
-
-        $groups = collect($items->items())
-            ->map(fn ($item) => $this->decorateCheckoutGroup(collect([$item])))
-            ->values();
+            ->with($this->customerOrderRelations())
+            ->when(
+                !$status,
+                fn ($q) => $q->orderByRaw("
+                    CASE status
+                        WHEN 'pending' THEN 1
+                        WHEN 'processing' THEN 2
+                        WHEN 'shipped' THEN 3
+                        WHEN 'delivered' THEN 4
+                        WHEN 'cancelled' THEN 5
+                        ELSE 6
+                    END
+                ")
+            )
+            ->orderByDesc('created_at')
+            ->paginate($perPage);
 
         return response()->json([
-            'message' => 'Order items retrieved successfully.',
-            'data' => $groups,
+            'message' => 'Orders retrieved successfully.',
+            'data' => collect($orders->items())->map(fn (Order $order) => $this->decorateCustomerOrder($order))->values(),
             'pagination' => [
-                'total' => $items->total(),
-                'per_page' => $items->perPage(),
-                'current_page' => $items->currentPage(),
-                'last_page' => $items->lastPage(),
+                'total' => $orders->total(),
+                'per_page' => $orders->perPage(),
+                'current_page' => $orders->currentPage(),
+                'last_page' => $orders->lastPage(),
             ],
             'counts' => [
                 'all' => (clone $filteredBaseQuery)->count(),
@@ -74,17 +83,13 @@ class CustomerOrderController extends Controller
         ]);
     }
 
-    public function show(Request $request, string $checkoutNo)
+    public function show(Request $request, string $uuid)
     {
-        $item = $this->customerCheckoutItem($request, $checkoutNo, ['location', 'product.images', 'product.store', 'variant', 'review']);
-        $group = $this->groupSnapshot($request->user()->id, $item->checkout_no);
+        $order = $this->customerOrder($request, $uuid, $this->customerOrderRelations());
 
         return response()->json([
-            'message' => 'Order item retrieved successfully.',
-            'data' => [
-                'item' => $this->decorateItem($item),
-                'group' => $group,
-            ],
+            'message' => 'Order retrieved successfully.',
+            'data' => $this->decorateCustomerOrder($order),
         ]);
     }
 
@@ -94,74 +99,91 @@ class CustomerOrderController extends Controller
         $data = $request->validated();
         $user->locations()->findOrFail($data['location_id']);
 
-        $items = $data['items'];
-        $shippingResult = (new ShippingCalculationService())->calculateShipping($items);
-        $shippingByIndex = collect($shippingResult['breakdown'])->keyBy('index');
+        try {
+            $preparedItems = $this->prepareCheckoutItems($data['items']);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'message' => 'Please review your order items.',
+                'errors' => $e->errors(),
+            ], 422);
+        }
+
+        $shippingResult = (new ShippingCalculationService())->calculateShipping($data['items']);
+        $shippingByStore = collect($shippingResult['breakdown'])->keyBy(fn ($group) => (string) $group['store_id']);
 
         try {
-            $createdIds = DB::transaction(function () use ($user, $data, $items, $shippingByIndex) {
-                $createdIds = [];
+            $createdOrderIds = DB::transaction(function () use ($user, $data, $preparedItems, $shippingByStore) {
+                $createdOrderIds = [];
 
-                foreach ($items as $index => $item) {
-                    $variant = ProductVariant::find($item['product_variant_id']);
+                foreach ($preparedItems->groupBy('store_id') as $storeId => $storeItems) {
+                    $subtotal = round($storeItems->sum(fn ($item) => (float) $item['variant']->price * (int) $item['quantity']), 2);
+                    $shippingGroup = $shippingByStore->get((string) $storeId);
+                    $shippingCost = (float) ($shippingGroup['shipping_fee'] ?? 0);
 
-                    if (!$variant) {
-                        throw ValidationException::withMessages([
-                            "items.{$index}.product_variant_id" => 'Please select a valid variant.',
-                        ]);
-                    }
-
-                    if ($variant->stock < $item['quantity']) {
-                        throw ValidationException::withMessages([
-                            "items.{$index}.quantity" => "Only {$variant->stock} items available for {$variant->name}.",
-                        ]);
-                    }
-
-                    $orderItem = OrderItem::create([
-                        'checkout_no' => (string) Str::uuid(),
+                    $order = Order::create([
+                        'uuid' => (string) Str::uuid(),
                         'user_id' => $user->id,
+                        'store_id' => (int) $storeId,
                         'location_id' => $data['location_id'],
                         'address_extra' => $data['address_extra'] ?? null,
-                        'message' => $item['message'] ?? null,
-                        'product_id' => $item['product_id'],
-                        'product_variant_id' => $item['product_variant_id'],
-                        'quantity' => $item['quantity'],
-                        'price' => $variant->price,
-                        'shipping_cost' => $shippingByIndex->get($index)['shipping_fee'] ?? 0,
                         'status' => 'pending',
+                        'shipping_cost' => $shippingCost,
+                        'subtotal_amount' => $subtotal,
+                        'total_amount' => $subtotal + $shippingCost,
                     ]);
 
-                    $createdIds[] = $orderItem->id;
-                    $variant->decrement('stock', $item['quantity']);
-                    $this->syncProductStockStatus($variant->product_id);
+                    foreach ($storeItems as $item) {
+                        /** @var ProductVariant $variant */
+                        $variant = $item['variant'];
 
-                    if (!empty($item['cart_id'])) {
-                        Cart::where('user_id', $user->id)->where('id', $item['cart_id'])->delete();
-                    } else {
-                        Cart::where('user_id', $user->id)
-                            ->where('product_id', $item['product_id'])
-                            ->where('product_variant_id', $item['product_variant_id'])
-                            ->delete();
+                        if ($variant->stock < $item['quantity']) {
+                            throw ValidationException::withMessages([
+                                "items.{$item['index']}.quantity" => "Only {$variant->stock} items available for {$variant->name}.",
+                            ]);
+                        }
+
+                        OrderItem::create([
+                            'order_id' => $order->id,
+                            'message' => $item['message'],
+                            'product_id' => $item['product_id'],
+                            'product_variant_id' => $item['product_variant_id'],
+                            'quantity' => $item['quantity'],
+                            'price' => $variant->price,
+                        ]);
+
+                        $variant->decrement('stock', $item['quantity']);
+                        $this->syncProductStockStatus($variant->product_id);
+
+                        if (!empty($item['cart_id'])) {
+                            Cart::where('user_id', $user->id)->where('id', $item['cart_id'])->delete();
+                        } else {
+                            Cart::where('user_id', $user->id)
+                                ->where('product_id', $item['product_id'])
+                                ->where('product_variant_id', $item['product_variant_id'])
+                                ->delete();
+                        }
                     }
+
+                    $createdOrderIds[] = $order->id;
                 }
 
-                return $createdIds;
+                return $createdOrderIds;
             });
 
-            $createdItems = OrderItem::query()
-                ->whereIn('id', $createdIds)
-                ->with(['location', 'product.images', 'product.store', 'variant', 'review'])
+            $createdOrders = Order::query()
+                ->whereIn('id', $createdOrderIds)
+                ->with($this->customerOrderRelations())
                 ->orderBy('id')
                 ->get();
 
-            $this->notifyOrderPlaced($createdItems);
+            $this->notifyOrderPlaced($createdOrders);
 
             return response()->json([
-                'message' => 'Order items created successfully.',
+                'message' => 'Orders created successfully.',
                 'data' => [
-                    'checkout_no' => $createdItems->first()?->checkout_no,
-                    'first_item_id' => $createdItems->first()?->id,
-                    'group' => $this->decorateCheckoutGroup(collect([$createdItems->first()])),
+                    'created_count' => $createdOrders->count(),
+                    'first_order_uuid' => $createdOrders->first()?->uuid,
+                    'orders' => $createdOrders->map(fn (Order $order) => $this->decorateCustomerOrder($order))->values(),
                 ],
             ], 201);
         } catch (ValidationException $e) {
@@ -171,30 +193,30 @@ class CustomerOrderController extends Controller
             ], 422);
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'Failed to create order items.',
+                'message' => 'Failed to create orders.',
                 'error' => $e->getMessage(),
             ], 500);
         }
     }
 
-    public function cancelItem(Request $request, $itemId)
+    public function cancelOrder(Request $request, string $uuid)
     {
         $validated = $request->validate([
             'cancellation_reason' => 'required|string|max:1000',
         ]);
 
-        $item = $this->customerItem($request, (int) $itemId);
+        $order = $this->customerOrder($request, $uuid, $this->customerOrderRelations());
 
-        if (!in_array($item->status, ['pending', 'processing'])) {
+        if ($order->status !== 'pending') {
             return response()->json([
-                'message' => 'Cannot cancel item.',
-                'error' => "This item cannot be cancelled once it is {$item->status}.",
+                'message' => 'Cannot cancel order.',
+                'error' => 'Only pending orders can be cancelled.',
             ], 422);
         }
 
-        DB::transaction(function () use ($item, $validated) {
-            $this->restoreItemStock($item);
-            $item->update([
+        DB::transaction(function () use ($order, $validated) {
+            $this->restoreOrderStock($order);
+            $order->update([
                 'status' => 'cancelled',
                 'cancelled_by' => 'customer',
                 'cancellation_reason' => $validated['cancellation_reason'],
@@ -202,40 +224,37 @@ class CustomerOrderController extends Controller
             ]);
         });
 
-        $item->load(['location', 'product.images', 'product.store', 'variant', 'review']);
-        $this->notifyItemCancelled($item, $validated['cancellation_reason']);
+        $order->refresh()->load($this->customerOrderRelations());
+        $this->notifyOrderCancelled($order, $validated['cancellation_reason']);
 
         return response()->json([
-            'message' => 'Order item cancelled successfully.',
-            'data' => [
-                'item' => $this->decorateItem($item),
-                'group' => $this->groupSnapshot($request->user()->id, $item->checkout_no),
-            ],
+            'message' => 'Order cancelled successfully.',
+            'data' => $this->decorateCustomerOrder($order),
         ]);
     }
 
-    public function deliverItem(Request $request, $itemId)
+    public function deliverOrder(Request $request, string $uuid)
     {
-        $item = $this->customerItem($request, (int) $itemId);
+        $order = $this->customerOrder($request, $uuid, $this->customerOrderRelations());
 
-        if ($item->status !== 'shipped') {
+        if ($order->status !== 'shipped') {
             return response()->json([
-                'message' => 'Cannot mark item delivered.',
-                'error' => 'Only shipped items can be marked as delivered.',
+                'message' => 'Cannot mark order received.',
+                'error' => 'Only shipped orders can be marked as received.',
             ], 422);
         }
 
-        $item->update(['status' => 'delivered']);
-        $item->load(['location', 'product.images', 'product.store', 'variant', 'review']);
+        $order->update([
+            'status' => 'delivered',
+            'delivered_at' => now(),
+        ]);
 
-        $this->notifyItemDelivered($item);
+        $order->refresh()->load($this->customerOrderRelations());
+        $this->notifyOrderDelivered($order);
 
         return response()->json([
-            'message' => 'Order item marked as delivered.',
-            'data' => [
-                'item' => $this->decorateItem($item),
-                'group' => $this->groupSnapshot($request->user()->id, $item->checkout_no),
-            ],
+            'message' => 'Order marked as received.',
+            'data' => $this->decorateCustomerOrder($order),
         ]);
     }
 
@@ -262,50 +281,94 @@ class CustomerOrderController extends Controller
         }
     }
 
-    private function customerItem(Request $request, int $itemId, array $with = []): OrderItem
+    private function prepareCheckoutItems(array $items): Collection
     {
-        return OrderItem::query()
+        $productIds = collect($items)->pluck('product_id')->unique()->values();
+        $variantIds = collect($items)->pluck('product_variant_id')->unique()->values();
+
+        $products = Product::query()
+            ->whereIn('id', $productIds)
+            ->with('store')
+            ->get()
+            ->keyBy('id');
+
+        $variants = ProductVariant::query()
+            ->whereIn('id', $variantIds)
+            ->get()
+            ->keyBy('id');
+
+        return collect($items)
+            ->values()
+            ->map(function (array $item, int $index) use ($products, $variants) {
+                $product = $products->get($item['product_id']);
+                $variant = $variants->get($item['product_variant_id']);
+                $quantity = (int) $item['quantity'];
+
+                if (!$product || $product->status !== 'active') {
+                    throw ValidationException::withMessages([
+                        "items.{$index}.product_id" => 'This product is not available for purchase.',
+                    ]);
+                }
+
+                if (!$variant || $variant->product_id !== (int) $item['product_id']) {
+                    throw ValidationException::withMessages([
+                        "items.{$index}.product_variant_id" => 'Invalid product variant.',
+                    ]);
+                }
+
+                if ($variant->stock < $quantity) {
+                    throw ValidationException::withMessages([
+                        "items.{$index}.quantity" => "Only {$variant->stock} items available for {$variant->name}.",
+                    ]);
+                }
+
+                return [
+                    'index' => $index,
+                    'cart_id' => $item['cart_id'] ?? null,
+                    'product_id' => (int) $item['product_id'],
+                    'product_variant_id' => (int) $item['product_variant_id'],
+                    'quantity' => $quantity,
+                    'message' => $item['message'] ?? null,
+                    'store_id' => (int) $product->store_id,
+                    'variant' => $variant,
+                ];
+            });
+    }
+
+    private function customerOrder(Request $request, string $uuid, array $with = []): Order
+    {
+        return Order::query()
             ->where('user_id', $request->user()->id)
-            ->where('id', $itemId)
+            ->where('uuid', $uuid)
             ->with($with)
             ->firstOrFail();
     }
 
-    private function customerCheckoutItem(Request $request, string $checkoutNo, array $with = []): OrderItem
+    private function customerOrderRelations(): array
     {
-        /** @var OrderItem $item */
-        $item = OrderItem::query()
-            ->where('user_id', $request->user()->id)
-            ->where('checkout_no', $checkoutNo)
-            ->with($with)
-            ->orderBy('id')
-            ->firstOrFail();
-
-        return $item;
+        return [
+            'location',
+            'store',
+            'items.product.images',
+            'items.variant',
+            'items.review',
+        ];
     }
 
-    private function groupSnapshot(int $userId, string $checkoutNo): array
+    private function restoreOrderStock(Order $order): void
     {
-        $items = OrderItem::query()
-            ->where('user_id', $userId)
-            ->where('checkout_no', $checkoutNo)
-            ->with(['location', 'product.images', 'product.store', 'variant', 'review'])
-            ->orderBy('id')
-            ->get();
+        $items = $order->relationLoaded('items') ? $order->items : $order->items()->get();
 
-        return $this->decorateCheckoutGroup($items);
-    }
+        foreach ($items as $item) {
+            $variant = ProductVariant::find($item->product_variant_id);
 
-    private function restoreItemStock(OrderItem $item): void
-    {
-        $variant = ProductVariant::find($item->product_variant_id);
+            if (!$variant) {
+                continue;
+            }
 
-        if (!$variant) {
-            return;
+            $variant->increment('stock', $item->quantity);
+            $this->syncProductStockStatus($variant->product_id);
         }
-
-        $variant->increment('stock', $item->quantity);
-        $this->syncProductStockStatus($variant->product_id);
     }
 
     private function syncProductStockStatus(int $productId): void
@@ -332,47 +395,49 @@ class CustomerOrderController extends Controller
         }
     }
 
-    private function decorateCheckoutGroup(Collection $items): array
+    private function decorateCustomerOrder(Order $order): array
     {
-        $first = $items->first();
-        $activeItems = $items->where('status', '!=', 'cancelled')->values();
-        $subtotal = $activeItems->sum(fn ($item) => (float) $item->price * $item->quantity);
-        $shippingCost = $activeItems->sum(fn ($item) => (float) $item->shipping_cost);
+        $items = $order->items ?? collect();
+        $isCancelled = $order->status === 'cancelled';
+        $subtotal = $isCancelled ? 0 : (float) $order->subtotal_amount;
+        $shippingCost = $isCancelled ? 0 : (float) $order->shipping_cost;
 
         return [
-            'id' => $first?->checkout_no,
-            'checkout_no' => $first?->checkout_no,
-            'created_at' => $first?->created_at,
-            'location' => $first?->location,
-            'address_extra' => $first?->address_extra,
-            'message' => $first?->message,
-            'active_items_count' => $activeItems->count(),
-            'cancelled_items_count' => $items->where('status', 'cancelled')->count(),
-            'price' => $subtotal,
+            'id' => $order->id,
+            'uuid' => $order->uuid,
+            'created_at' => $order->created_at,
+            'status' => $order->status,
+            'cancelled_by' => $order->cancelled_by,
+            'cancellation_reason' => $order->cancellation_reason,
+            'cancelled_at' => $order->cancelled_at,
+            'shipped_at' => $order->shipped_at,
+            'delivered_at' => $order->delivered_at,
+            'location' => $order->location,
+            'address_extra' => $order->address_extra,
+            'store' => $this->storePayload($order->store),
+            'shipment' => $order->courier_name ? [
+                'courier_name' => $order->courier_name,
+                'tracking_number' => $order->tracking_number,
+            ] : null,
+            'active_items_count' => $isCancelled ? 0 : $items->count(),
+            'cancelled_items_count' => $isCancelled ? $items->count() : 0,
+            'subtotal' => $subtotal,
             'shipping_cost' => $shippingCost,
             'total_price' => $subtotal + $shippingCost,
-            'order_items' => $items->values()->map(fn ($item) => $this->decorateItem($item))->toArray(),
-            'item_groups' => $items->values()->map(fn ($item) => [
-                'store' => $this->storePayload($item->product?->store),
-                'status' => $item->status,
-                'shipment' => $item->courier_name ? [
-                    'courier_name' => $item->courier_name,
-                    'tracking_number' => $item->tracking_number,
-                ] : null,
-                'items' => [$this->decorateItem($item)],
-                'subtotal' => $item->status === 'cancelled' ? 0 : (float) $item->price * $item->quantity,
-            ])->toArray(),
+            'can_cancel' => $order->status === 'pending',
+            'can_mark_received' => $order->status === 'shipped',
+            'order_items' => $items->map(fn (OrderItem $item) => $this->decorateOrderItem($item, $order))->values()->all(),
         ];
     }
 
-    private function decorateItem(OrderItem $item): array
+    private function decorateOrderItem(OrderItem $item, Order $order): array
     {
         $payload = $item->toArray();
         $payload['line_total'] = (float) $item->price * $item->quantity;
-        $payload['item_total'] = $item->status === 'cancelled' ? 0 : $payload['line_total'] + (float) $item->shipping_cost;
-        $payload['store'] = $this->storePayload($item->product?->store);
+        $payload['status'] = $order->status;
+        $payload['store'] = $this->storePayload($order->store);
         $payload['review'] = $this->reviewPayload($item->review);
-        $payload['can_review'] = $item->status === 'delivered' && !$item->review;
+        $payload['can_review'] = $order->status === 'delivered' && !$item->review;
 
         return $payload;
     }
@@ -403,68 +468,67 @@ class CustomerOrderController extends Controller
         ] : null;
     }
 
-    private function notifyOrderPlaced(Collection $items): void
+    private function notifyOrderPlaced(Collection $orders): void
     {
-        foreach ($items as $item) {
-            $store = $item->product?->store;
-            if ($store) {
-                SendNotificationJob::dispatch(
-                    (int) $store->user_id,
-                    'order',
-                    'New Product Order',
-                    "{$item->product?->name} was ordered by a customer.",
-                    [
-                        'checkout_no' => $item->checkout_no,
-                        'order_item_id' => $item->id,
-                        'status' => 'pending',
-                        'url' => $this->sellerOrderUrl($item),
-                    ]
-                );
+        foreach ($orders as $order) {
+            if (!$order->store) {
+                continue;
             }
-        }
-    }
 
-    private function notifyItemCancelled(OrderItem $item, string $reason): void
-    {
-        $store = $item->product?->store;
-        if ($store) {
             SendNotificationJob::dispatch(
-                (int) $store->user_id,
+                (int) $order->store->user_id,
                 'order',
-                'Product Order Cancelled',
-                "The customer cancelled {$item->product?->name}. Reason: {$reason}",
+                'New Store Order',
+                "A customer placed an order with {$order->items->count()} item(s) from your store.",
                 [
-                    'checkout_no' => $item->checkout_no,
-                    'order_item_id' => $item->id,
-                    'status' => 'cancelled',
-                    'url' => $this->sellerOrderUrl($item),
+                    'order_uuid' => $order->uuid,
+                    'status' => 'pending',
+                    'url' => $this->sellerOrderUrl($order),
                 ]
             );
         }
     }
 
-    private function notifyItemDelivered(OrderItem $item): void
+    private function notifyOrderCancelled(Order $order, string $reason): void
     {
-        $store = $item->product?->store;
-
-        if ($store) {
-            SendNotificationJob::dispatch(
-                (int) $store->user_id,
-                'order',
-                'Product Delivered',
-                "The customer confirmed delivery for {$item->product?->name}.",
-                [
-                    'checkout_no' => $item->checkout_no,
-                    'order_item_id' => $item->id,
-                    'status' => 'delivered',
-                    'url' => $this->sellerOrderUrl($item),
-                ]
-            );
+        if (!$order->store) {
+            return;
         }
+
+        SendNotificationJob::dispatch(
+            (int) $order->store->user_id,
+            'order',
+            'Store Order Cancelled',
+            "The customer cancelled order {$order->uuid}. Reason: {$reason}",
+            [
+                'order_uuid' => $order->uuid,
+                'status' => 'cancelled',
+                'url' => $this->sellerOrderUrl($order),
+            ]
+        );
     }
 
-    private function sellerOrderUrl(OrderItem $item): string
+    private function notifyOrderDelivered(Order $order): void
     {
-        return "/seller/orders/items/{$item->checkout_no}";
+        if (!$order->store) {
+            return;
+        }
+
+        SendNotificationJob::dispatch(
+            (int) $order->store->user_id,
+            'order',
+            'Store Order Delivered',
+            "The customer confirmed delivery for order {$order->uuid}.",
+            [
+                'order_uuid' => $order->uuid,
+                'status' => 'delivered',
+                'url' => $this->sellerOrderUrl($order),
+            ]
+        );
+    }
+
+    private function sellerOrderUrl(Order $order): string
+    {
+        return "/seller/orders/{$order->uuid}";
     }
 }

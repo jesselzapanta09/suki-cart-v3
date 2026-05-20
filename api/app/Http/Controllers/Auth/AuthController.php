@@ -238,14 +238,13 @@ class AuthController extends Controller
         $user = User::where('email', $request->email)->first();
 
         if (!$user) {
-            // Generic message to prevent email enumeration
-            return response()->json(['message' => 'If that email is registered, you will receive a reset link shortly.'], 200);
+            return response()->json(['message' => 'Email not found.'], 404);
         }
 
         $resetToken = TokenHelper::create($user->id, 'password_reset', 5);
         Mail::to($user->email)->send(new ResetPasswordMail($user, $resetToken));
 
-        return response()->json(['message' => 'If that email is registered, you will receive a reset link shortly.'], 200);
+        return response()->json(['message' => 'Reset link sent. Please check your inbox.'], 200);
     }
 
     public function resetPassword(Request $request)

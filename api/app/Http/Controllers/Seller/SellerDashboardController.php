@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Seller;
 
 use App\Http\Controllers\Controller;
-use App\Models\OrderItem;
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use Illuminate\Http\JsonResponse;
@@ -12,10 +12,6 @@ use Illuminate\Support\Facades\DB;
 
 class SellerDashboardController extends Controller
 {
-    /**
-     * GET /api/seller/dashboard
-     * Summary metrics and recent activity for the authenticated seller.
-     */
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -45,8 +41,7 @@ class SellerDashboardController extends Controller
         $store->load(['category:id,name', 'verification:id,store_id,store_status,rejection_reason,reviewed_at']);
 
         $productQuery = Product::query()->where('store_id', $store->id);
-        $orderBaseQuery = OrderItem::query()
-            ->whereHas('product', fn ($query) => $query->where('store_id', $store->id));
+        $orderBaseQuery = Order::query()->where('store_id', $store->id);
 
         $orderCounts = (clone $orderBaseQuery)
             ->select('status', DB::raw('COUNT(*) as total'))
@@ -73,41 +68,42 @@ class SellerDashboardController extends Controller
 
         $recentOrders = (clone $orderBaseQuery)
             ->with([
-                'user:id,firstname,lastname,email',
-                'product:id,uuid,store_id,name',
-                'product.images:id,product_id,image_path,sort_order',
-                'variant:id,product_id,name,price,stock',
+                'user:id,uuid,firstname,lastname,email,profile_picture,contact_number',
+                'items.product:id,uuid,store_id,name',
+                'items.product.images:id,product_id,image_path,sort_order',
+                'items.variant:id,product_id,name,price,stock',
             ])
             ->latest()
             ->take(5)
             ->get()
-            ->map(function (OrderItem $item) {
+            ->map(function (Order $order) {
+                $items = $order->items ?? collect();
+                $firstItem = $items->first();
+
                 return [
-                    'id' => $item->id,
-                    'checkout_no' => $item->checkout_no,
-                    'status' => $item->status,
-                    'created_at' => $item->created_at,
-                    'quantity' => $item->quantity,
-                    'price' => (float) $item->price,
-                    'shipping_cost' => (float) $item->shipping_cost,
-                    'item_total' => $item->status === 'cancelled'
-                        ? 0
-                        : ((float) $item->price * $item->quantity) + (float) $item->shipping_cost,
-                    'customer' => $item->user ? [
-                        'id' => $item->user->id,
-                        'firstname' => $item->user->firstname,
-                        'lastname' => $item->user->lastname,
-                        'email' => $item->user->email,
+                    'id' => $order->id,
+                    'uuid' => $order->uuid,
+                    'status' => $order->status,
+                    'created_at' => $order->created_at,
+                    'item_count' => $items->count(),
+                    'subtotal' => $order->status === 'cancelled' ? 0 : (float) $order->subtotal_amount,
+                    'shipping_cost' => $order->status === 'cancelled' ? 0 : (float) $order->shipping_cost,
+                    'total_price' => $order->status === 'cancelled' ? 0 : (float) $order->total_amount,
+                    'customer' => $order->user ? [
+                        'id' => $order->user->id,
+                        'uuid' => $order->user->uuid,
+                        'firstname' => $order->user->firstname,
+                        'lastname' => $order->user->lastname,
+                        'email' => $order->user->email,
+                        'profile_picture' => $order->user->profile_picture,
+                        'contact_number' => $order->user->contact_number,
                     ] : null,
-                    'product' => $item->product ? [
-                        'id' => $item->product->id,
-                        'uuid' => $item->product->uuid,
-                        'name' => $item->product->name,
-                        'images' => $item->product->images,
-                    ] : null,
-                    'variant' => $item->variant ? [
-                        'id' => $item->variant->id,
-                        'name' => $item->variant->name,
+                    'preview_item' => $firstItem ? [
+                        'id' => $firstItem->id,
+                        'product' => $firstItem->product,
+                        'variant' => $firstItem->variant,
+                        'quantity' => $firstItem->quantity,
+                        'price' => (float) $firstItem->price,
                     ] : null,
                 ];
             })
@@ -115,7 +111,7 @@ class SellerDashboardController extends Controller
 
         $lifetimeRevenue = (clone $orderBaseQuery)
             ->whereNotIn('status', ['cancelled'])
-            ->selectRaw('COALESCE(SUM((price * quantity) + shipping_cost), 0) as total')
+            ->selectRaw('COALESCE(SUM(total_amount), 0) as total')
             ->value('total');
 
         $totalStock = ProductVariant::query()

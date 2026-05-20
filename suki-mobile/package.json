@@ -41,11 +41,18 @@
         "ANDROID_GSON_VERSION": "2.9.0",
         "ANDROID_FIREBASE_PERF_GRADLE_PLUGIN_VERSION": "1.4.2",
         "ANDROID_GRPC_OKHTTP": "1.46.0"
+      },
+      "cordova-plugin-customurlscheme": {
+        "URL_SCHEME": "sukicart",
+        "ANDROID_SCHEME": " ",
+        "ANDROID_HOST": " ",
+        "ANDROID_PATHPREFIX": "/"
       }
     }
   },
   "devDependencies": {
     "cordova-android": "^13.0.0",
+    "cordova-plugin-customurlscheme": "^5.0.2",
     "cordova-plugin-firebasex": "^16.1.0"
   }
 }

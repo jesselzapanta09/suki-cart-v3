@@ -10,9 +10,9 @@ class ShippingCalculationService
     private const WEIGHT_RATE = 50;
 
     /**
-     * Calculate shipping per product order item.
+     * Calculate shipping per store order.
      *
-     * Formula: base fee + (product weight * quantity * weight rate).
+     * Formula per store: base fee + (combined product weight * weight rate).
      */
     public function calculateShipping(array $items): array
     {
@@ -22,8 +22,7 @@ class ShippingCalculationService
             ->get()
             ->keyBy('id');
 
-        $totalShippingFee = 0;
-        $breakdown = [];
+        $grouped = [];
 
         foreach ($items as $index => $item) {
             $product = $products->get($item['product_id']);
@@ -35,28 +34,47 @@ class ShippingCalculationService
             $quantity = (int) ($item['quantity'] ?? 1);
             $unitWeight = (float) ($product->weight ?? 0);
             $totalWeight = $unitWeight * $quantity;
-            $weightFee = $totalWeight * self::WEIGHT_RATE;
-            $shippingFee = self::BASE_SHIPPING_FEE + $weightFee;
+            $storeKey = (string) $product->store_id;
 
-            $totalShippingFee += $shippingFee;
+            if (!isset($grouped[$storeKey])) {
+                $grouped[$storeKey] = [
+                    'store_id' => $product->store_id,
+                    'store_name' => $product->store->store_name ?? 'Unknown Store',
+                    'base_fee' => self::BASE_SHIPPING_FEE,
+                    'weight_rate' => self::WEIGHT_RATE,
+                    'total_weight' => 0,
+                    'items' => [],
+                ];
+            }
 
-            $breakdown[] = [
+            $grouped[$storeKey]['total_weight'] += $totalWeight;
+            $grouped[$storeKey]['items'][] = [
                 'index' => $index,
                 'cart_id' => $item['cart_id'] ?? null,
                 'product_id' => $product->id,
                 'product_variant_id' => $item['product_variant_id'] ?? null,
                 'product_name' => $product->name,
-                'store_id' => $product->store_id,
-                'store_name' => $product->store->store_name ?? 'Unknown Store',
                 'quantity' => $quantity,
                 'unit_weight' => $unitWeight,
                 'total_weight' => $totalWeight,
-                'base_fee' => self::BASE_SHIPPING_FEE,
-                'weight_rate' => self::WEIGHT_RATE,
-                'weight_fee' => $weightFee,
-                'shipping_fee' => $shippingFee,
             ];
         }
+
+        $totalShippingFee = 0;
+        $breakdown = collect($grouped)
+            ->values()
+            ->map(function (array $group) use (&$totalShippingFee) {
+                $weightFee = $group['total_weight'] * self::WEIGHT_RATE;
+                $shippingFee = self::BASE_SHIPPING_FEE + $weightFee;
+                $totalShippingFee += $shippingFee;
+
+                $group['weight_fee'] = $weightFee;
+                $group['shipping_fee'] = $shippingFee;
+
+                return $group;
+            })
+            ->values()
+            ->all();
 
         return [
             'breakdown' => $breakdown,

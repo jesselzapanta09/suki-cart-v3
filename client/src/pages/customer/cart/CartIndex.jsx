@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { ShoppingCart, Trash2, Package, ShoppingBag, Store } from "lucide-react";
 import { useCart } from "../../../context/CartContext";
 import * as cartService from "../../../services/cartService";
+import { formatPeso } from "../../../utils/currency";
 import { getStorageUrl } from "../../../utils/storage";
 
 const PAGE_SIZE = 10;
@@ -247,6 +248,7 @@ export default function CartIndex() {
 
     const isAllChecked = cartItems.length > 0 && cartItems.every(item => checkedItems[getCartItemKey(item)]);
     const isIndeterminate = cartItems.some(item => checkedItems[getCartItemKey(item)]) && !isAllChecked;
+    const contentBottomSpacing = totalItems > 0 ? "pb-44 md:pb-28" : "";
 
     return (
         <div className="mx-auto max-w-7xl space-y-4 px-3 pb-6 pt-3 sm:space-y-5 sm:px-4 sm:pb-8 sm:pt-4 lg:px-8">
@@ -265,7 +267,7 @@ export default function CartIndex() {
                     </div>
                 </div>
 
-                <div className="w-full space-y-4">
+                <div className={`w-full space-y-4 ${contentBottomSpacing}`}>
                     {loading ? (
                         <div className="min-h-64 flex items-center justify-center">
                             <Spin size="large" />
@@ -325,7 +327,7 @@ export default function CartIndex() {
                                             </div>
                                             <div className="text-left md:text-right pl-8 md:pl-0">
                                                 <p className="text-xs text-gray-500">Store subtotal</p>
-                                                <p className="font-bold text-green-700">₱{group.subtotal.toFixed(2)}</p>
+                                                <p className="font-bold text-green-700">{formatPeso(group.subtotal)}</p>
                                             </div>
                                         </div>
 
@@ -385,7 +387,7 @@ export default function CartIndex() {
                                                         <div className="flex justify-between md:justify-center items-center">
                                                             <span className="md:hidden text-xs font-medium text-gray-500">Unit Price</span>
                                                             <span className="text-sm font-semibold text-green-700">
-                                                                ₱{getPrice(item).toFixed(2)}
+                                                                {formatPeso(getPrice(item))}
                                                             </span>
                                                         </div>
 
@@ -410,7 +412,7 @@ export default function CartIndex() {
                                                         <div className="flex justify-between md:justify-center items-center">
                                                             <span className="md:hidden text-xs font-medium text-gray-500">Total Price</span>
                                                             <span className="text-sm font-bold text-gray-800">
-                                                                ₱{(getPrice(item) * item.qty).toFixed(2)}
+                                                                {formatPeso(getPrice(item) * item.qty)}
                                                             </span>
                                                         </div>
 
@@ -452,6 +454,7 @@ export default function CartIndex() {
                                         current={pagination.current}
                                         pageSize={pagination.pageSize}
                                         total={total}
+                                        showSizeChanger={false}
                                         onChange={handlePageChange}
                                     />
                                 </div>
@@ -471,7 +474,7 @@ export default function CartIndex() {
                                     <div className="min-w-0">
                                         <p className="text-xs text-gray-600 font-medium">Order Total</p>
                                         <p className="text-2xl md:text-3xl font-bold text-green-900">
-                                            ₱{getCheckedTotal().toFixed(2)}
+                                            {formatPeso(getCheckedTotal())}
                                         </p>
                                         <p className="text-xs text-gray-500 mt-0.5">
                                             {getCheckedItems().length} item{getCheckedItems().length !== 1 ? "s" : ""} selected

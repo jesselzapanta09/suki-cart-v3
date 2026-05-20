@@ -25,7 +25,7 @@ class HomeLatestProductController extends Controller
             ->withCount('reviews')
             ->withAvg('reviews', 'rating')
             ->withSum([
-                'orderItems as sold' => fn ($orderQuery) => $orderQuery->where('status', 'delivered'),
+                'orderItems as sold' => fn ($orderQuery) => $orderQuery->whereHas('order', fn ($orderSubQuery) => $orderSubQuery->where('status', 'delivered')),
             ], 'quantity')
             ->latest('created_at')
             ->limit(4)

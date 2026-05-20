@@ -63,4 +63,9 @@ class Store extends Model
     {
         return $this->hasOne(StoreVerificationLog::class)->latestOfMany();
     }
+
+    public function orders()
+    {
+        return $this->hasMany(Order::class);
+    }
 }

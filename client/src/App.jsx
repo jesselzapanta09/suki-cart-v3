@@ -29,6 +29,7 @@ import RegisterSeller   from "./pages/auth/RegisterSeller.jsx";
 import VerifyEmail      from "./pages/auth/Verifyemail.jsx";
 import ForgotPassword   from "./pages/auth/Forgotpassword.jsx";
 import ResetPassword    from "./pages/auth/Resetpassword.jsx";
+import AppOpenGate      from "./pages/auth/AppOpenGate.jsx";
 import EditProfile      from "./pages/profile/EditProfile.jsx";
 
 // Pages - Admin
@@ -119,6 +120,8 @@ export default function App() {
                                     </Route>
 
                                     {/* Standalone */}
+                                    <Route path="/open-app/verify-email" element={<AppOpenGate action="verifyEmail" />} />
+                                    <Route path="/open-app/reset-password" element={<AppOpenGate action="resetPassword" />} />
                                     <Route path="/verify-email"    element={<VerifyEmail />} />
                                     <Route path="/forgot-password" element={<ForgotPassword />} />
                                     <Route path="/reset-password"  element={<ResetPassword />} />
@@ -153,7 +156,7 @@ export default function App() {
                                         <Route path="/customer/cart" element={<CartIndex />} />
                                         <Route path="/customer/checkout" element={<CheckoutIndex />} />
                                         <Route path="/customer/orders" element={<OrderIndex />} />
-                                        <Route path="/customer/orders/items/:checkoutNo" element={<OrderDetailsPage />} />
+                                        <Route path="/customer/orders/:orderUuid" element={<OrderDetailsPage />} />
                                     </Route>
 
                                     {/* Seller routes */}
@@ -164,9 +167,7 @@ export default function App() {
                                         <Route path="/seller/products/:uuid/edit" element={<ProductFormPage mode="edit" />} />
                                         <Route path="/seller/products/:uuid/variants" element={<ProductVariantManagementIndex />} />
                                         <Route path="/seller/orders" element={<SellerOrderIndex />} />
-                                        <Route path="/seller/orders/items/:checkoutNo" element={<SellerOrderDetailsPage />} />
-                                        <Route path="/seller/order-items" element={<SellerOrderIndex />} />
-                                        <Route path="/seller/order-items/:checkoutNo" element={<SellerOrderDetailsPage />} />
+                                        <Route path="/seller/orders/:orderUuid" element={<SellerOrderDetailsPage />} />
                                         <Route path="/seller/edit-profile" element={<EditProfile />} />
                                         <Route path="/seller/notifications" element={<NotificationsPage />} />
                                     </Route>
